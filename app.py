@@ -22,7 +22,7 @@ def create_app():
         r"/*": {
             "origins": cors_origins.split(','),
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization", "x-api-key"],
+            "allow_headers": ["Content-Type", "Authorization", "x-api-key", "Origin"],
             "expose_headers": ["Content-Type", "X-Request-ID"],
             "supports_credentials": True,
             "max_age": 600
