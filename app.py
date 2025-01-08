@@ -12,11 +12,22 @@ MAX_QUEUE_LENGTH = int(os.environ.get('MAX_QUEUE_LENGTH', 0))
 def create_app():
     app = Flask(__name__)
     
-    # Enable CORS from environment variable
+    # Enable CORS with explicit configuration from environment
     from flask_cors import CORS
     cors_origins = os.environ.get('CORS_ORIGINS')
-    if cors_origins:
-        CORS(app, resources={r"/*": {"origins": cors_origins.split(',')}})
+    if not cors_origins:
+        raise ValueError("CORS_ORIGINS environment variable must be set with comma-separated allowed domains")
+        
+    CORS(app, resources={
+        r"/*": {
+            "origins": cors_origins.split(','),
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "expose_headers": ["Content-Type", "X-Request-ID"],
+            "supports_credentials": True,
+            "max_age": 600
+        }
+    })
 
     # Create a queue to hold tasks
     task_queue = Queue()
