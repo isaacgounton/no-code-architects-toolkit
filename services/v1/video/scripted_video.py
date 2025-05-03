@@ -29,7 +29,6 @@ import aiohttp
 from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY
 from services.v1.video.caption_video import process_captioning_v1
 import tempfile
-from moviepy.editor import VideoFileClip, concatenate_videoclips, AudioFileClip
 import whisper
 
 # Initialize logger
@@ -217,6 +216,14 @@ def get_scene_keywords(scene: str) -> List[str]:
     keywords = [word for word in words if word not in common_words and len(word) > 3]
     return list(set(keywords[:5]))  # Return up to 5 unique keywords
 
+def get_media_duration(file_path: str) -> float:
+    """
+    Get duration of a media file using ffmpeg
+    """
+    probe = ffmpeg.probe(file_path)
+    duration = float(probe['format']['duration'])
+    return duration
+
 def crop_video_to_aspect_ratio(video_path: str, target_ratio: str, output_path: str) -> str:
     """
     Crop video to desired aspect ratio
@@ -261,7 +268,65 @@ def crop_video_to_aspect_ratio(video_path: str, target_ratio: str, output_path: 
         logger.error(f"Error cropping video: {str(e)}")
         raise
 
-from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
+def combine_video_audio(video_path: str, audio_path: str, output_path: str, video_duration: float, audio_duration: float) -> str:
+    """
+    Combine video and audio, handling looping if needed
+    """
+    try:
+        if video_duration < audio_duration:
+            # Create a complex filter to loop video
+            num_loops = int(audio_duration / video_duration) + 1
+            loop_filter = f"loop={num_loops}:1:0"
+            video = ffmpeg.input(video_path).filter(loop_filter)
+        else:
+            video = ffmpeg.input(video_path)
+        
+        # Trim video to audio duration
+        video = video.filter('trim', duration=audio_duration)
+        audio = ffmpeg.input(audio_path)
+        
+        # Combine video and audio
+        ffmpeg.output(
+            video,
+            audio,
+            output_path,
+            vcodec='libx264',
+            acodec='aac',
+            strict='experimental'
+        ).overwrite_output().run()
+        
+        return output_path
+    except Exception as e:
+        logger.error(f"Error combining video and audio: {str(e)}")
+        raise
+
+def concatenate_videos(video_paths: List[str], output_path: str) -> str:
+    """
+    Concatenate multiple videos using ffmpeg
+    """
+    try:
+        # Create a temporary file listing all videos to concatenate
+        with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as f:
+            for video_path in video_paths:
+                f.write(f"file '{os.path.abspath(video_path)}'\n")
+            concat_list = f.name
+        
+        # Run ffmpeg concatenation
+        ffmpeg.input(
+            concat_list,
+            format='concat',
+            safe=0
+        ).output(
+            output_path,
+            c='copy'
+        ).overwrite_output().run()
+        
+        # Clean up
+        os.unlink(concat_list)
+        return output_path
+    except Exception as e:
+        logger.error(f"Error concatenating videos: {str(e)}")
+        raise
 
 async def process_scene(
     scene: str, 
@@ -275,15 +340,6 @@ async def process_scene(
 ) -> str:
     """
     Process a single scene: synthesize voice, fetch and process video, combine
-    
-    Args:
-        scene: Scene text content
-        voice: Voice ID for synthesis
-        aspect_ratio: Target aspect ratio
-        job_id: Unique job identifier
-        scene_num: Scene number in sequence
-        custom_url: Optional custom video URL
-        use_placeholder: Whether to use placeholder video as last resort
     """
     scene_dir = os.path.join(LOCAL_STORAGE_PATH, job_id, f"scene_{scene_num}")
     os.makedirs(scene_dir, exist_ok=True)
@@ -293,9 +349,7 @@ async def process_scene(
     await synthesize_voice(scene, voice, audio_path)
     
     # Get scene duration from audio
-    audio_clip = AudioFileClip(audio_path)
-    scene_duration = audio_clip.duration
-    audio_clip.close()
+    audio_duration = get_media_duration(audio_path)
     
     # Try getting video in order: custom URL -> stock media -> placeholder
     video_url = None
@@ -320,6 +374,7 @@ async def process_scene(
                 video_url = DEFAULT_PLACEHOLDER_VIDEO
         else:
             raise Exception(f"No video source available for scene {scene_num}")
+    
     raw_video_path = os.path.join(scene_dir, "raw_video.mp4")
     # Always download if it's not the local default placeholder
     if video_url != DEFAULT_PLACEHOLDER_VIDEO:
@@ -333,26 +388,14 @@ async def process_scene(
     cropped_video_path = os.path.join(scene_dir, "cropped_video.mp4")
     crop_video_to_aspect_ratio(raw_video_path, aspect_ratio, cropped_video_path)
     
+    # Get video duration
+    video_duration = get_media_duration(cropped_video_path)
+    
     # Combine video and audio
-    video_clip = VideoFileClip(cropped_video_path)
-    audio_clip = AudioFileClip(audio_path)
-    
-    # Loop video if shorter than audio
-    if video_clip.duration < audio_clip.duration:
-        num_loops = int(audio_clip.duration / video_clip.duration) + 1
-        video_clip = concatenate_videoclips([video_clip] * num_loops)
-    
-    # Trim video to audio length
-    video_clip = video_clip.subclip(0, audio_clip.duration)
-    final_clip = video_clip.set_audio(audio_clip)
-    
-    # Save scene
     scene_output_path = os.path.join(scene_dir, "final_scene.mp4")
-    final_clip.write_videofile(scene_output_path, codec='libx264', audio_codec='aac')
+    combine_video_audio(cropped_video_path, audio_path, scene_output_path, video_duration, audio_duration)
     
     # Cleanup
-    video_clip.close()
-    audio_clip.close()
     os.remove(raw_video_path)
     os.remove(cropped_video_path)
     
@@ -413,14 +456,7 @@ def process_scripted_video_v1(
         
         # Combine all scenes
         final_path = os.path.join(job_dir, "final_video.mp4")
-        clips = [VideoFileClip(path) for path in scene_paths]
-        final_clip = concatenate_videoclips(clips)
-        final_clip.write_videofile(final_path, codec='libx264', audio_codec='aac')
-        
-        # Close clips
-        for clip in clips:
-            clip.close()
-        final_clip.close()
+        concatenate_videos(scene_paths, final_path)
         
         # Add captions if requested
         if add_captions:

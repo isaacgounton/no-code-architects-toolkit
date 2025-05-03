@@ -226,6 +226,7 @@ The service follows this priority order when selecting video for each scene:
 
 ## 8. Common Issues
 
+- **Resource efficiency**: The video processing is optimized using direct FFmpeg operations, making it more resource-efficient and reliable on servers with limited resources.
 - **Long scripts**: Very long scripts may result in longer processing times. Consider breaking them into smaller segments.
 - **Stock media limitations**: Some specific or niche topics may have limited stock media options. Use custom_media or placeholder_url for better control.
 - **Voice synthesis quality**: Voice quality may vary depending on the selected voice and language.
