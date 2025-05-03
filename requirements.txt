@@ -18,3 +18,6 @@ boto3
 Pillow
 matplotlib
 yt-dlp
+edge-tts>=7.0.1
+moviepy==2.1.2
+aiohttp>=3.11.18

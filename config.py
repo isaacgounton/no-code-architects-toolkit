@@ -19,13 +19,28 @@
 import os
 import logging
 
-# Retrieve the API key from environment variables
+# Retrieve API keys from environment variables
 API_KEY = os.environ.get('API_KEY')
 if not API_KEY:
     raise ValueError("API_KEY environment variable is not set")
 
-# Storage path setting
+PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
+if not PEXELS_API_KEY:
+    raise ValueError("PEXELS_API_KEY environment variable is not set")
+
+PIXABAY_API_KEY = os.environ.get('PIXABAY_API_KEY')
+if not PIXABAY_API_KEY:
+    raise ValueError("PIXABAY_API_KEY environment variable is not set")
+
+# Storage path settings
 LOCAL_STORAGE_PATH = os.environ.get('LOCAL_STORAGE_PATH', '/tmp')
+DEFAULT_PLACEHOLDER_VIDEO = os.environ.get('DEFAULT_PLACEHOLDER_VIDEO', 
+    os.path.join(LOCAL_STORAGE_PATH, "assets", "placeholder.mp4"))
+
+# Ensure placeholder path exists
+placeholder_dir = os.path.dirname(DEFAULT_PLACEHOLDER_VIDEO)
+if not os.path.exists(placeholder_dir):
+    os.makedirs(placeholder_dir, exist_ok=True)
 
 # GCP environment variables
 GCP_SA_CREDENTIALS = os.environ.get('GCP_SA_CREDENTIALS', '')
