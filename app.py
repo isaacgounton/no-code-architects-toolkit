@@ -95,7 +95,9 @@ def create_app():
         def decorator(f):
             def wrapper(*args, **kwargs):
                 job_id = str(uuid.uuid4())
-                data = request.json if request.is_json else {}
+                # We get the data from kwargs if provided by validate_payload,
+                # otherwise get it from the request.
+                data = kwargs.pop('data', request.json if request.is_json else {})
                 pid = os.getpid()  # Get PID for non-queued tasks
                 start_time = time.time()
                 
@@ -110,6 +112,7 @@ def create_app():
                         "response": None
                     })
                     
+                    # Pass data explicitly now, it's removed from kwargs
                     response = f(job_id=job_id, data=data, *args, **kwargs)
                     run_time = time.time() - start_time
                     
@@ -171,6 +174,7 @@ def create_app():
                         "response": None
                     })
                     
+                    # Pass data explicitly when putting into queue lambda
                     task_queue.put((job_id, data, lambda: f(job_id=job_id, data=data, *args, **kwargs), start_time))
                     
                     return {
