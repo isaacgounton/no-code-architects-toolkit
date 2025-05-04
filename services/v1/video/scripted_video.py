@@ -26,10 +26,11 @@ from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 from typing import List, Dict, Any, Optional, Union
 import aiohttp
-from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY
+from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
 from services.v1.video.caption_video import process_captioning_v1
 import tempfile
 import whisper
+from nltk.corpus import stopwords
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -377,6 +378,11 @@ async def process_scene(
     
     raw_video_path = os.path.join(scene_dir, "raw_video.mp4")
     # Always download if it's not the local default placeholder
+    
+    # Debugging: Check if DEFAULT_PLACEHOLDER_VIDEO is in globals
+    logger.info(f"Globals check before line 380: {'DEFAULT_PLACEHOLDER_VIDEO' in globals()}")
+    logger.info(f"Value if present: {globals().get('DEFAULT_PLACEHOLDER_VIDEO', 'Not Found')}")
+
     if video_url != DEFAULT_PLACEHOLDER_VIDEO:
         await download_media(video_url, raw_video_path)
     else:
