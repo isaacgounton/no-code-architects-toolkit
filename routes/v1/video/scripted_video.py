@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
     "additionalProperties": False
 })
 @queue_task_wrapper(bypass_queue=False)
-def scripted_video_v1(job_id, data):
+def scripted_video_v1(data, job_id):
     """
     Generate a video from a script with voice synthesis and optional captions.
     """

@@ -28,11 +28,10 @@ def validate_payload(schema):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            if not request.json:
+            # Get a mutable copy of the JSON data
+            data = request.get_json()
+            if not data:
                 return jsonify({"message": "Missing JSON in request"}), 400
-            
-            # Create a copy of the request data for modification
-            data = request.json.copy()
             
             # Convert string booleans to actual booleans
             def convert_string_booleans(obj):
@@ -52,9 +51,8 @@ def validate_payload(schema):
             except jsonschema.exceptions.ValidationError as validation_error:
                 return jsonify({"message": f"Invalid payload: {validation_error.message}"}), 400
             
-            # Update request.json with the converted values
-            request.json = data
-            return f(*args, **kwargs)
+            # Pass the converted data to the function
+            return f(data=data, *args, **kwargs)
         return decorated_function
     return decorator
 
