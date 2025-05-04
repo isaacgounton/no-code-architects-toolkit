@@ -105,12 +105,17 @@ async def fetch_from_pixabay(query: str, media_type: str = "video") -> List[Dict
         logger.error(f"Pixabay fetch error: {str(e)}")
         return []
 
+# Track used videos to prevent repetition
+used_videos = set()
+
 async def fetch_stock_media(query: str, media_type: str = "video", custom_url: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Fetch stock media with fallback options and custom URL support
     """
+    global used_videos
+    
     if custom_url:
-        # Return custom URL in a format compatible with the rest of the pipeline
+        # Custom URLs can be reused if needed
         return [{
             "video_files" if media_type == "video" else "photos": [{
                 "link": custom_url
@@ -119,36 +124,68 @@ async def fetch_stock_media(query: str, media_type: str = "video", custom_url: O
     
     # Try Pexels first
     results = await fetch_from_pexels(query, media_type)
+    
+    # Filter out already used videos and try to find a new one
     if results:
-        return results
+        for result in results:
+            video_url = result.get("video_files", [{}])[0].get("link") if media_type == "video" else result.get("photos", [{}])[0].get("link")
+            if video_url and video_url not in used_videos:
+                used_videos.add(video_url)
+                return [result]
     
-    # If no results from Pexels, try Pixabay
-    logger.info(f"No results from Pexels for '{query}', trying Pixabay")
+    # If no new results from Pexels, try Pixabay
+    logger.info(f"No new results from Pexels for '{query}', trying Pixabay")
     pixabay_results = await fetch_from_pixabay(query, media_type)
-    if pixabay_results:
-        # Convert Pixabay format to match Pexels format
-        return [{
-            "video_files" if media_type == "video" else "photos": [{
-                "link": item.get("videos", {}).get("large", {}).get("url") if media_type == "video" else item.get("largeImageURL")
-            }]
-        } for item in pixabay_results]
     
-    # If still no results, try with alternative keywords
+    if pixabay_results:
+        # Convert Pixabay format to match Pexels format and filter used videos
+        for item in pixabay_results:
+            video_url = item.get("videos", {}).get("large", {}).get("url") if media_type == "video" else item.get("largeImageURL")
+            if video_url and video_url not in used_videos:
+                used_videos.add(video_url)
+                return [{
+                    "video_files" if media_type == "video" else "photos": [{
+                        "link": video_url
+                    }]
+                }]
+    
+    # Try alternative keywords
     alt_keywords = generate_alternative_keywords(query)
     for alt_query in alt_keywords:
         logger.info(f"Trying alternative query: {alt_query}")
+        
         # Try Pexels with alternative keywords
         results = await fetch_from_pexels(alt_query, media_type)
         if results:
-            return results
+            for result in results:
+                video_url = result.get("video_files", [{}])[0].get("link") if media_type == "video" else result.get("photos", [{}])[0].get("link")
+                if video_url and video_url not in used_videos:
+                    used_videos.add(video_url)
+                    return [result]
+        
         # Try Pixabay with alternative keywords
         pixabay_results = await fetch_from_pixabay(alt_query, media_type)
         if pixabay_results:
-            return [{
-                "video_files" if media_type == "video" else "photos": [{
-                    "link": item.get("videos", {}).get("large", {}).get("url") if media_type == "video" else item.get("largeImageURL")
-                }]
-            } for item in pixabay_results]
+            for item in pixabay_results:
+                video_url = item.get("videos", {}).get("large", {}).get("url") if media_type == "video" else item.get("largeImageURL")
+                if video_url and video_url not in used_videos:
+                    used_videos.add(video_url)
+                    return [{
+                        "video_files" if media_type == "video" else "photos": [{
+                            "link": video_url
+                        }]
+                    }]
+    
+    # If we still didn't find any new videos, return the first result we found originally
+    # even if it was used before
+    if results:
+        return [results[0]]
+    if pixabay_results:
+        return [{
+            "video_files" if media_type == "video" else "photos": [{
+                "link": pixabay_results[0].get("videos", {}).get("large", {}).get("url") if media_type == "video" else pixabay_results[0].get("largeImageURL")
+            }]
+        }]
     
     return []
 
@@ -201,10 +238,26 @@ async def download_media(url: str, output_path: str) -> str:
 
 def extract_scenes(script: str) -> List[str]:
     """
-    Split script into scenes based on paragraphs
+    Split script into scenes based on paragraphs and lines for more granular scenes
     """
-    # Split by double newlines to separate paragraphs
-    scenes = [scene.strip() for scene in script.split("\n\n") if scene.strip()]
+    # First, split by double newlines to identify major paragraphs
+    paragraphs = [para.strip() for para in script.split("\n\n") if para.strip()]
+    
+    # For paragraphs that are longer, further split by single newlines
+    scenes = []
+    for paragraph in paragraphs:
+        lines = paragraph.split("\n")
+        if len(lines) > 3:  # If paragraph has more than 3 lines, split into smaller scenes
+            # Group every 2-3 lines to create more scenes
+            for i in range(0, len(lines), 2):
+                scene = "\n".join(lines[i:i+2])
+                if scene.strip():
+                    scenes.append(scene.strip())
+        else:
+            scenes.append(paragraph)
+    
+    # Make sure all scenes have reasonable content
+    scenes = [scene for scene in scenes if len(scene.split()) >= 3]
     return scenes
 
 def get_scene_keywords(scene: str) -> List[str]:
@@ -462,6 +515,10 @@ def process_scripted_video_v1(
     Process a complete scripted video
     """
     try:
+        # Reset the used_videos set for each new video processing
+        global used_videos
+        used_videos = set()
+        
         # Create job directory
         job_dir = os.path.join(LOCAL_STORAGE_PATH, job_id)
         os.makedirs(job_dir, exist_ok=True)
