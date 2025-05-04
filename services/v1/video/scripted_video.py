@@ -27,7 +27,7 @@ from nltk.tag import pos_tag
 from typing import List, Dict, Any, Optional, Union
 import aiohttp
 from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
-from services.v1.video.caption_video import process_captioning_v1
+from services.v1.video.caption_video import process_captioning_v1, format_ass_time
 import tempfile
 import whisper
 from nltk.corpus import stopwords
