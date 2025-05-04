@@ -27,7 +27,7 @@ from nltk.tag import pos_tag
 from typing import List, Dict, Any, Optional, Union
 import aiohttp
 from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
-from services.v1.video.caption_video import process_captioning_v1, format_ass_time
+from services.v1.video.caption_video import process_captioning_v1
 import tempfile
 import whisper
 from nltk.corpus import stopwords
@@ -406,6 +406,14 @@ async def process_scene(
     os.remove(cropped_video_path)
     
     return scene_output_path
+
+def format_ass_time(seconds):
+    """Convert float seconds to ASS time format H:MM:SS.cc"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centiseconds = int(round((seconds - int(seconds)) * 100))
+    return f"{hours}:{minutes:02}:{secs:02}.{centiseconds:02}"
 
 def process_scripted_video_v1(
     script: str,
