@@ -703,14 +703,26 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
         else:
             captions_content = None
 
-        # Download the video
-        try:
-            video_path = download_file(video_url, LOCAL_STORAGE_PATH)
-            logger.info(f"Job {job_id}: Video downloaded to {video_path}")
-        except Exception as e:
-            logger.error(f"Job {job_id}: Video download error: {str(e)}")
-            # For non-font errors, do NOT include available_fonts
-            return {"error": str(e)}
+        # Download the video OR use the local path if provided
+        video_path = None
+        if "://" in video_url:
+            # It's a URL, download it
+            logger.info(f"Job {job_id}: Video provided as URL. Downloading.")
+            try:
+                video_path = download_file(video_url, LOCAL_STORAGE_PATH)
+                logger.info(f"Job {job_id}: Video downloaded to {video_path}")
+            except Exception as e:
+                logger.error(f"Job {job_id}: Video download error: {str(e)}")
+                return {"error": str(e)}
+        else:
+            # Assume it's a local path
+            logger.info(f"Job {job_id}: Video provided as local path: {video_url}")
+            if os.path.exists(video_url):
+                video_path = video_url
+            else:
+                error_msg = f"Provided local video path does not exist: {video_url}"
+                logger.error(f"Job {job_id}: {error_msg}")
+                return {"error": error_msg}
 
         # Get video resolution
         video_resolution = get_video_resolution(video_path)
