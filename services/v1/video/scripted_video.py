@@ -31,6 +31,7 @@ from services.v1.video.caption_video import process_captioning_v1
 import tempfile
 import whisper
 from nltk.corpus import stopwords
+from services.v1.video.utils import format_ass_time
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -470,26 +471,25 @@ def process_scripted_video_v1(
             model = whisper.load_model("base")
             transcription = model.transcribe(final_path)
             
-            # Create temporary SRT file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.srt', delete=False) as f:
-                for i, segment in enumerate(transcription['segments'], 1):
-                    f.write(f"{i}\n")
-                    f.write(f"{segment['start']} --> {segment['end']}\n")
-                    f.write(f"{segment['text'].strip()}\n\n")
-                srt_path = f.name
+            # Create temporary SRT file content
+            srt_content = ""
+            for i, segment in enumerate(transcription['segments'], 1):
+                start_time_str = format_ass_time(segment['start'])
+                end_time_str = format_ass_time(segment['end'])
+                text = segment['text'].strip()
+                srt_content += f"{i}\n{start_time_str.replace('.',',')} --> {end_time_str.replace('.',',')}\n{text}\n\n"
             
-            # Apply captions using existing caption service
+            # Apply captions using existing caption service, passing the content
             captioned_path = process_captioning_v1(
-                final_path,          # video_url
-                srt_path,            # captions (SRT path)
+                final_path,          # video_url (local path)
+                srt_content,         # captions (SRT content string)
                 caption_settings,    # settings
                 [],                  # replace (empty list as not supported here)
                 job_id               # job_id
                 # language defaults to 'auto'
             )
             
-            # Cleanup
-            os.remove(srt_path)
+            # Cleanup original final video (captioned_path is the new final path)
             os.remove(final_path)
             final_path = captioned_path
         
