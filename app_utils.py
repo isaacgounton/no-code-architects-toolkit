@@ -30,11 +30,30 @@ def validate_payload(schema):
         def decorated_function(*args, **kwargs):
             if not request.json:
                 return jsonify({"message": "Missing JSON in request"}), 400
+            
+            # Create a copy of the request data for modification
+            data = request.json.copy()
+            
+            # Convert string booleans to actual booleans
+            def convert_string_booleans(obj):
+                if isinstance(obj, dict):
+                    return {k: convert_string_booleans(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_string_booleans(item) for item in obj]
+                elif isinstance(obj, str) and obj.lower() in ['true', 'false']:
+                    return obj.lower() == 'true'
+                return obj
+            
+            # Convert any string booleans in the request data
+            data = convert_string_booleans(data)
+            
             try:
-                jsonschema.validate(instance=request.json, schema=schema)
+                jsonschema.validate(instance=data, schema=schema)
             except jsonschema.exceptions.ValidationError as validation_error:
                 return jsonify({"message": f"Invalid payload: {validation_error.message}"}), 400
             
+            # Update request.json with the converted values
+            request.json = data
             return f(*args, **kwargs)
         return decorated_function
     return decorator
