@@ -31,7 +31,6 @@ from services.v1.video.caption_video import process_captioning_v1, format_ass_ti
 import tempfile
 import whisper
 from nltk.corpus import stopwords
-from services.v1.video.utils import format_ass_time
 
 # Initialize logger
 logger = logging.getLogger(__name__)

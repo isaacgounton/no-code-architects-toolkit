@@ -224,7 +224,7 @@ def create_app():
     from routes.v1.media.feedback import v1_media_feedback_bp
     from routes.v1.media.convert.media_to_mp3 import v1_media_convert_mp3_bp
     from routes.v1.video.concatenate import v1_video_concatenate_bp
-    from routes.v1.video.caption_video import v1_video_caption_bp
+    from routes.v1.video.caption_video import v1_video_caption_bp, process_captioning_v1, format_ass_time
     from routes.v1.image.convert.image_to_video import v1_image_convert_video_bp
     from routes.v1.toolkit.test import v1_toolkit_test_bp
     from routes.v1.toolkit.authenticate import v1_toolkit_auth_bp
