@@ -480,10 +480,12 @@ def process_scripted_video_v1(
             
             # Apply captions using existing caption service
             captioned_path = process_captioning_v1(
-                final_path,
-                srt_path,
-                caption_settings,
-                job_id
+                final_path,          # video_url
+                srt_path,            # captions (SRT path)
+                caption_settings,    # settings
+                [],                  # replace (empty list as not supported here)
+                job_id               # job_id
+                # language defaults to 'auto'
             )
             
             # Cleanup
