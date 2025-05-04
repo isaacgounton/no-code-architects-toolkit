@@ -275,26 +275,58 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
     """
     try:
         if video_duration < audio_duration:
-            # Create a complex filter to loop video
-            num_loops = int(audio_duration / video_duration) + 1
-            loop_filter = f"loop={num_loops}:1:0"
-            video = ffmpeg.input(video_path).filter(loop_filter)
+            # Use a better approach for looping video
+            # First, create a temporary file with the same video repeated multiple times
+            with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as f:
+                num_loops = int(audio_duration / video_duration) + 1
+                for _ in range(num_loops):
+                    f.write(f"file '{os.path.abspath(video_path)}'\n")
+                concat_list = f.name
+            
+            # Create a temporary concatenated video
+            temp_video_path = os.path.join(os.path.dirname(output_path), "temp_looped.mp4")
+            
+            # Use concat demuxer which is more reliable
+            ffmpeg.input(
+                concat_list,
+                format='concat',
+                safe=0
+            ).output(
+                temp_video_path,
+                c='copy'
+            ).overwrite_output().run()
+            
+            # Now trim the concatenated video to match audio duration
+            input_video = ffmpeg.input(temp_video_path)
+            input_audio = ffmpeg.input(audio_path)
+            
+            # Combine video and audio with the right duration
+            ffmpeg.output(
+                input_video.video.filter('trim', duration=audio_duration),
+                input_audio.audio,
+                output_path,
+                vcodec='libx264',
+                acodec='aac',
+                strict='experimental'
+            ).overwrite_output().run()
+            
+            # Clean up temp files
+            os.unlink(concat_list)
+            os.unlink(temp_video_path)
         else:
-            video = ffmpeg.input(video_path)
-        
-        # Trim video to audio duration
-        video = video.filter('trim', duration=audio_duration)
-        audio = ffmpeg.input(audio_path)
-        
-        # Combine video and audio
-        ffmpeg.output(
-            video,
-            audio,
-            output_path,
-            vcodec='libx264',
-            acodec='aac',
-            strict='experimental'
-        ).overwrite_output().run()
+            # Video is longer than audio, just trim it
+            input_video = ffmpeg.input(video_path)
+            input_audio = ffmpeg.input(audio_path)
+            
+            # Combine video and audio
+            ffmpeg.output(
+                input_video.video.filter('trim', duration=audio_duration),
+                input_audio.audio,
+                output_path,
+                vcodec='libx264',
+                acodec='aac',
+                strict='experimental'
+            ).overwrite_output().run()
         
         return output_path
     except Exception as e:
