@@ -6,7 +6,7 @@ openai-whisper
 gunicorn
 APScheduler
 srt
-numpy
+numpy>=2.0.2
 torch
 google-auth
 google-auth-oauthlib
@@ -20,6 +20,6 @@ matplotlib
 yt-dlp
 edge-tts
 asyncio
-kokoro-onnx
+kokoro-onnx==0.4.7
 soundfile
 wget
