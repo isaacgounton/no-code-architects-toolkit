@@ -1,8 +1,10 @@
-# Base image
-FROM python:3.9-slim
+# Use Python 3.11 base image (supports onnxruntime 1.20.1+)
+FROM python:3.11-slim
 
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libgomp1 \
     ca-certificates \
     wget \
     tar \
@@ -161,11 +163,14 @@ RUN mkdir -p ${WHISPER_CACHE_DIR}
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
-# Install Python dependencies, upgrade pip 
+# Upgrade pip and install requirements with version pins
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install openai-whisper && \
-    pip install jsonschema 
+    pip install --no-cache-dir \
+    "numpy<2.0" \
+    "onnxruntime==1.19.2" \
+    -r requirements.txt \
+    openai-whisper \
+    jsonschema
 
 # Create the appuser 
 RUN useradd -m appuser 
