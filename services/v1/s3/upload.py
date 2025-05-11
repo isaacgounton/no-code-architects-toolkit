@@ -39,16 +39,37 @@ def get_s3_client():
     
     return session.client('s3', endpoint_url=endpoint_url)
 
+def secure_filename_with_extension(filename):
+    """
+    Create a secure filename while preserving the original file extension.
+    
+    Args:
+        filename (str): Original filename
+    
+    Returns:
+        str: Secure filename with original extension
+    """
+    if not filename:
+        return f"{uuid.uuid4()}"
+    
+    # Split filename into name and extension
+    base, ext = os.path.splitext(filename)
+    # Secure the base filename
+    secure_base = secure_filename(base)
+    
+    # If after securing the base is empty, use a UUID
+    if not secure_base:
+        secure_base = str(uuid.uuid4())
+    
+    # Return combination of secured base and original extension
+    return f"{secure_base}{ext.lower()}"
+
 def get_filename_from_url(url):
     """Extract filename from URL."""
     path = urlparse(url).path
     filename = os.path.basename(unquote(path))
     
-    # If filename cannot be determined, generate a UUID
-    if not filename or filename == '':
-        filename = f"{uuid.uuid4()}"
-    
-    return secure_filename(filename)
+    return secure_filename_with_extension(filename)
 
 def stream_upload_to_s3(source, custom_filename=None, make_public=False, is_url=True):
     """
@@ -73,13 +94,11 @@ def stream_upload_to_s3(source, custom_filename=None, make_public=False, is_url=
         
         # Determine filename
         if custom_filename:
-            filename = secure_filename(custom_filename)
+            filename = secure_filename_with_extension(custom_filename)
         elif is_url:
             filename = get_filename_from_url(source)
         else:
-            filename = secure_filename(source.filename)
-            if not filename:  # If filename is empty after securing
-                filename = f"{uuid.uuid4()}"
+            filename = secure_filename_with_extension(source.filename)
         
         # Start a multipart upload
         logger.info(f"Starting multipart upload for {filename} to bucket {bucket_name}")
