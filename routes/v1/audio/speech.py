@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 @validate_payload({
     "type": "object",
     "properties": {
-        "tts": {"type": "string", "enum": ["edge-tts", "streamlabs-polly"]},
+        "tts": {"type": "string", "enum": ["edge-tts", "streamlabs-polly", "kokoro"]},
         "text": {"type": "string"},
         "voice": {"type": "string"},
         "webhook_url": {"type": "string", "format": "uri"},

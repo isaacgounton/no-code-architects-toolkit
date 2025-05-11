@@ -30,6 +30,25 @@ import edge_tts
 import re
 from config import LOCAL_STORAGE_PATH
 from time import sleep
+import kokoro_onnx
+import wget
+
+# Download kokoro model files if they don't exist
+MODEL_PATH = os.path.join(LOCAL_STORAGE_PATH, 'kokoro-v1.0.onnx')
+VOICES_PATH = os.path.join(LOCAL_STORAGE_PATH, 'voices-v1.0.bin')
+
+def ensure_kokoro_files():
+    """Download kokoro model files if they don't exist"""
+    if not os.path.exists(MODEL_PATH):
+        wget.download(
+            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+            MODEL_PATH
+        )
+    if not os.path.exists(VOICES_PATH):
+        wget.download(
+            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+            VOICES_PATH
+        )
 
 def check_ratelimit(response: requests.Response) -> bool:
     """
@@ -211,8 +230,36 @@ def handle_edge_tts(text, voice, job_id):
 
 TTS_HANDLERS = {
     'edge-tts': handle_edge_tts,
-    'streamlabs-polly': handle_streamlabs_polly_tts,  # Added Streamlabs Polly handler here
+    'streamlabs-polly': handle_streamlabs_polly_tts,
+    'kokoro': handle_kokoro_tts
 }
+
+def handle_kokoro_tts(text, voice, job_id):
+    """
+    Generate TTS audio using kokoro-onnx and save it to LOCAL_STORAGE_PATH.
+    Uses Kokoro-82M model with ONNX runtime.
+    """
+    ensure_kokoro_files()  # Ensure model files are downloaded
+
+    # Initialize Kokoro with model files
+    kokoro = kokoro_onnx.Kokoro(MODEL_PATH, VOICES_PATH)
+    
+    # Get available voices if none specified
+    if not voice:
+        voice = "af_sarah"  # Default voice (English)
+    
+    # Generate audio (returns numpy array and sample rate)
+    samples, sr = kokoro.create(text, voice=voice, lang="en-us")
+    
+    # Prepare output path
+    output_filename = f"{job_id}.wav"
+    output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
+    
+    # Save audio using soundfile
+    import soundfile as sf
+    sf.write(output_path, samples, sr)
+    
+    return output_path
 
 def generate_tts(tts, text, voice, job_id):
     """

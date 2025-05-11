@@ -21,7 +21,7 @@ The `/v1/audio/speech` endpoint allows clients to convert text into speech using
 
 | Parameter     | Type   | Required | Description |
 |---------------|--------|----------|-------------|
-| `tts`         | String | No       | The TTS engine to use. Default is `edge-tts`. Options: `edge-tts`, `streamlabs-polly` |
+| `tts`         | String | No       | The TTS engine to use. Default is `edge-tts`. Options: `edge-tts`, `streamlabs-polly`, `kokoro` |
 | `text`        | String | Yes      | The text to convert to speech. |
 | `voice`       | String | No       | The voice to use. The valid voice list depends on the TTS engine. |
 | `webhook_url` | String | No       | A URL to receive a callback notification when processing is complete. If provided, the request will be processed asynchronously. |
@@ -184,8 +184,15 @@ When processing is complete, a webhook will be sent to the provided URL with the
 ## Usage Notes
 
 1. **Asynchronous Processing**: For longer processing times (e.g., generating speech from large texts), it's recommended to use the `webhook_url` parameter for asynchronous processing.
-2. **Voice Availability**: The list of available voices depends on the TTS engine selected. Consult engine-specific documentation for available voices.
+2. **Voice Availability**: The list of available voices depends on the TTS engine selected:
+   - **edge-tts**: Uses Microsoft Edge's TTS voices. Preview at https://tts.travisvn.com/
+   - **streamlabs-polly**: Includes voices like Brian, Emma, Russell, Joey, Matthew, Joanna, Kimberly, Amy, Geraint, Nicole, Justin, Ivy, Kendra, Salli, Raveena
+   - **kokoro**: Uses Kokoro TTS voices. View available voices at https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
 3. **Queue Behavior**: If the system is under heavy load, requests with `webhook_url` will be queued. The `MAX_QUEUE_LENGTH` environment variable controls the maximum queue size.
+4. **File Formats**: Different TTS engines may produce different audio formats:
+   - edge-tts: MP3
+   - streamlabs-polly: MP3
+   - kokoro: WAV
 
 ## Common Issues
 
