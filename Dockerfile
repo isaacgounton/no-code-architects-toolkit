@@ -162,15 +162,9 @@ RUN mkdir -p ${WHISPER_CACHE_DIR}
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
-# Upgrade pip and install requirements with version pins
+# Upgrade pip and install requirements
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-    "numpy>=1.22,<2.1.0" \
-    "onnxruntime==1.16.3" \
-    torch>=2.0 \
-    -r requirements.txt \
-    openai-whisper \
-    jsonschema
+    pip install --no-cache-dir -r requirements.txt jsonschema
 
 # Create the appuser 
 RUN useradd -m appuser 
