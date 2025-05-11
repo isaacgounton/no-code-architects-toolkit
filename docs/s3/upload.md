@@ -1,66 +1,109 @@
-# S3 Upload API
+# S3 Upload Endpoint
 
-This endpoint allows you to stream a file from a remote URL directly to an S3-compatible storage service without using local disk space.
-
-## Endpoint
-
-`POST /v1/s3/upload`
+The `/v1/s3/upload` endpoint allows you to upload files to S3 storage either from a URL or by directly uploading a file.
 
 ## Authentication
 
-This endpoint requires an API key to be provided in the `X-API-Key` header.
+Authentication token required in the request header:
+```
+Authorization: Bearer your-token-here
+```
 
-## Request Body
+## Endpoint
 
-The request body should be a JSON object with the following properties:
+```
+POST /v1/s3/upload
+```
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| file_url | string | Yes | The URL of the file to upload to S3 |
-| filename | string | No | Custom filename to use for the uploaded file. If not provided, the original filename will be used |
-| public | boolean | No | Whether to make the file publicly accessible. Defaults to `false` |
+## Upload Methods
 
-Example request body:
+### 1. URL Upload
+
+Upload a file from a URL by sending a JSON request.
+
+#### Request Body (JSON)
+
 ```json
 {
-  "file_url": "https://example.com/path/to/file.mp4",
-  "filename": "custom-name.mp4",
-  "public": true
+    "file_url": "https://example.com/path/to/file.jpg",
+    "filename": "custom-name.jpg",  // Optional
+    "public": false  // Optional, defaults to false
 }
 ```
+
+#### Parameters
+
+- `file_url` (required): URL of the file to upload
+- `filename` (optional): Custom filename for the uploaded file. If not provided, will use the filename from the URL
+- `public` (optional): Boolean flag to make the file publicly accessible. Defaults to false
+
+### 2. File Upload
+
+Upload a file directly using multipart form data.
+
+#### Form Data Parameters
+
+- `file` (required): The file to upload
+- `filename` (optional): Custom filename for the uploaded file. If not provided, will use the original filename
+- `public` (optional): Set to 'true' to make the file publicly accessible. Defaults to false
 
 ## Response
 
-The response will be a JSON object with the following properties:
+### Success Response
 
-| Property | Type | Description |
-|----------|------|-------------|
-| url | string | The URL of the uploaded file. For public files, this is a direct URL. For private files, this is a pre-signed URL that will expire after 1 hour |
-| filename | string | The filename of the uploaded file |
-| bucket | string | The name of the S3 bucket where the file was uploaded |
-| public | boolean | Whether the file is publicly accessible |
-
-Example response:
 ```json
 {
-  "url": "https://bucket-name.s3.region.amazonaws.com/custom-name.mp4",
-  "filename": "custom-name.mp4",
-  "bucket": "bucket-name",
-  "public": true
+    "code": 200,
+    "job_id": "unique-job-id",
+    "response": {
+        "file_url": "https://your-s3-bucket.com/filename.ext",
+        "filename": "filename.ext",
+        "bucket": "your-bucket-name",
+        "public": false
+    },
+    "message": "success"
 }
 ```
 
-## Error Handling
+### For Queued Jobs
 
-If an error occurs, the response will include an error message with an appropriate HTTP status code.
+```json
+{
+    "code": 202,
+    "job_id": "unique-job-id",
+    "message": "processing"
+}
+```
 
-## Technical Details
+### Error Response
 
-This endpoint uses the S3-compatible multipart upload API to stream the file directly from the source URL to S3 without saving it locally. This allows for efficient transfer of large files with minimal memory usage.
+```json
+{
+    "code": 400,
+    "message": "Error message here"
+}
+```
 
-The implementation:
-1. Streams the file from the source URL in chunks
-2. Uploads each chunk to S3 as a part of a multipart upload
-3. Completes the multipart upload once all parts are uploaded
+## Examples
 
-This approach supports resumable uploads and can handle large files efficiently.
+### URL Upload Example
+
+```bash
+curl -X POST https://api.example.com/v1/s3/upload \
+  -H "Authorization: Bearer your-token-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file_url": "https://example.com/image.jpg",
+    "filename": "my-image.jpg",
+    "public": true
+  }'
+```
+
+### File Upload Example
+
+```bash
+curl -X POST https://api.example.com/v1/s3/upload \
+  -H "Authorization: Bearer your-token-here" \
+  -F "file=@/path/to/local/file.jpg" \
+  -F "filename=my-image.jpg" \
+  -F "public=true"

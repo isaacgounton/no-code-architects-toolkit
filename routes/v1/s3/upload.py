@@ -14,8 +14,6 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-
-
 from flask import Blueprint, request, jsonify
 from services.authentication import authenticate
 from app_utils import validate_payload, queue_task_wrapper
@@ -29,31 +27,40 @@ v1_s3_upload_bp = Blueprint('v1_s3_upload', __name__)
 
 @v1_s3_upload_bp.route('/v1/s3/upload', methods=['POST'])
 @authenticate
-@validate_payload({
-    "type": "object",
-    "properties": {
-        "file_url": {"type": "string", "format": "uri"},
-        "filename": {"type": "string"},
-        "public": {"type": "boolean"}
-    },
-    "required": ["file_url"]
-})
 @queue_task_wrapper(bypass_queue=False)
 def s3_upload_endpoint(job_id, data):
     try:
-        file_url = data.get('file_url')
-        filename = data.get('filename')  # Optional, will default to original filename if not provided
-        make_public = data.get('public', False)  # Default to private
-        
-        logger.info(f"Job {job_id}: Starting S3 streaming upload from {file_url}")
-        
-        # Call the service function to handle the upload
-        result = stream_upload_to_s3(file_url, filename, make_public)
+        # Check if a file was uploaded
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename == '':
+                return "No selected file", "/v1/s3/upload", 400
+            
+            # Get optional parameters from form data
+            filename = request.form.get('filename')  # Optional custom filename
+            make_public = request.form.get('public', 'false').lower() == 'true'  # Default to private
+            
+            logger.info(f"Job {job_id}: Starting S3 file upload for {file.filename}")
+            
+            result = stream_upload_to_s3(file, filename, make_public, is_url=False)
+            
+        # Check if a URL was provided in JSON data
+        elif request.is_json and data.get('file_url'):
+            file_url = data.get('file_url')
+            filename = data.get('filename')  # Optional, will default to URL filename
+            make_public = data.get('public', False)  # Default to private
+            
+            logger.info(f"Job {job_id}: Starting S3 streaming upload from {file_url}")
+            
+            result = stream_upload_to_s3(file_url, filename, make_public, is_url=True)
+            
+        else:
+            return "No file uploaded and no URL provided", "/v1/s3/upload", 400
         
         logger.info(f"Job {job_id}: Successfully uploaded to S3")
         
         return result, "/v1/s3/upload", 200
         
     except Exception as e:
-        logger.error(f"Job {job_id}: Error streaming upload to S3 - {str(e)}")
+        logger.error(f"Job {job_id}: Error uploading to S3 - {str(e)}")
         return str(e), "/v1/s3/upload", 500
