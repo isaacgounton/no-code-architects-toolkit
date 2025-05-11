@@ -228,12 +228,6 @@ def handle_edge_tts(text, voice, job_id):
 
 
 
-TTS_HANDLERS = {
-    'edge-tts': handle_edge_tts,
-    'streamlabs-polly': handle_streamlabs_polly_tts,
-    'kokoro': handle_kokoro_tts
-}
-
 def handle_kokoro_tts(text, voice, job_id):
     """
     Generate TTS audio using kokoro-onnx and save it to LOCAL_STORAGE_PATH.
@@ -260,6 +254,12 @@ def handle_kokoro_tts(text, voice, job_id):
     sf.write(output_path, samples, sr)
     
     return output_path
+
+TTS_HANDLERS = {
+    'edge-tts': handle_edge_tts,
+    'streamlabs-polly': handle_streamlabs_polly_tts,
+    'kokoro': handle_kokoro_tts
+}
 
 def generate_tts(tts, text, voice, job_id):
     """
