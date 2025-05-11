@@ -20,6 +20,6 @@ matplotlib
 yt-dlp
 edge-tts
 asyncio
-kokoro-onnx>=1.0.0
+kokoro-onnx
 soundfile
 wget
