@@ -49,17 +49,19 @@ logger = logging.getLogger(__name__)
 })
 @queue_task_wrapper(bypass_queue=False)
 def transcribe(job_id, data):
-    media_url = data['media_url']
-    task = data.get('task', 'transcribe')
-    include_text = data.get('include_text', True)
-    include_srt = data.get('include_srt', False)
-    include_segments = data.get('include_segments', False)
-    word_timestamps = data.get('word_timestamps', False)
-    response_type = data.get('response_type', 'direct')
-    language = data.get('language', None)
-    webhook_url = data.get('webhook_url')
-    id = data.get('id')
-    words_per_line = data.get('words_per_line', None)
+    # Get the validated and type-converted data
+    validated_data = getattr(request, '_validated_json', request.json)
+    media_url = validated_data['media_url']
+    task = validated_data.get('task', 'transcribe')
+    include_text = validated_data.get('include_text', True)
+    include_srt = validated_data.get('include_srt', False)
+    include_segments = validated_data.get('include_segments', False)
+    word_timestamps = validated_data.get('word_timestamps', False)
+    response_type = validated_data.get('response_type', 'direct')
+    language = validated_data.get('language', None)
+    webhook_url = validated_data.get('webhook_url')
+    id = validated_data.get('id')
+    words_per_line = validated_data.get('words_per_line', None)
 
     logger.info(f"Job {job_id}: Received transcription request for {media_url}")
 
