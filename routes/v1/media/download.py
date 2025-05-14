@@ -63,7 +63,8 @@ logger = logging.getLogger(__name__)
             "properties": {
                 "max_filesize": {"type": "integer"},
                 "rate_limit": {"type": "string"},
-                "retries": {"type": "integer"}
+                "retries": {"type": "integer"},
+                "cookies": {"type": "string", "description": "Cookies in Netscape format for authentication"}
             }
         }
     },
@@ -92,6 +93,17 @@ def download_media(job_id, data):
                 'quiet': True,
                 'no_warnings': True,
             }
+
+            # Handle cookies if provided
+            if download_options and download_options.get('cookies'):
+                cookies_file = os.path.join(temp_dir, 'cookies.txt')
+                try:
+                    with open(cookies_file, 'w') as f:
+                        f.write(download_options['cookies'])
+                    ydl_opts['cookiefile'] = cookies_file
+                    logger.info("Using provided cookies for authentication")
+                except Exception as e:
+                    logger.error(f"Error writing cookies file: {str(e)}")
 
             # Add format options if specified
             if format_options:
@@ -143,6 +155,14 @@ def download_media(job_id, data):
                     ydl_opts['limit_rate'] = download_options['rate_limit']
                 if download_options.get('retries'):
                     ydl_opts['retries'] = download_options['retries']
+                
+            # Clean up cookies file if it exists
+            if 'cookies_file' in locals():
+                try:
+                    os.remove(cookies_file)
+                    logger.debug("Cleaned up cookies file")
+                except Exception as e:
+                    logger.error(f"Error cleaning up cookies file: {str(e)}")
 
             # Download the media
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -207,4 +227,4 @@ def download_media(job_id, data):
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during download process - {str(e)}")
-        return str(e), "/v1/media/download", 500 
+        return str(e), "/v1/media/download", 500

@@ -78,10 +78,11 @@ The `/v1/BETA/media/download` endpoint provides a powerful interface for downloa
 #### Download Options (Optional)
 
 ```json
-"download": {
-  "max_filesize": integer, // Maximum file size in bytes
-  "rate_limit": "string",  // Download rate limit (e.g., "50K")
-  "retries": integer       // Number of download retry attempts
+  "download": {
+    "max_filesize": integer, // Maximum file size in bytes
+    "rate_limit": "string",  // Download rate limit (e.g., "50K")
+    "retries": integer,      // Number of download retry attempts
+    "cookies": "string"      // Netscape-format cookies for authentication
 }
 ```
 
@@ -289,6 +290,20 @@ The endpoint handles various error scenarios:
 5. **Rate Limiting**:
    - Use `download.rate_limit` to control download speed (e.g., "50K" for 50 KB/s)
    - This can help prevent IP blocking from some media sources
+
+6. **YouTube Authentication**:
+   - For age-restricted or private YouTube videos, provide authentication cookies in Netscape format
+   - To obtain cookies:
+     1. Sign in to YouTube in your browser
+     2. Use a browser extension like "Get cookies.txt" or "Cookie-Editor" to export cookies
+     3. Export cookies in Netscape/Mozilla format
+     4. Provide the cookie content in the `download.cookies` parameter
+   - Example cookie format:
+     ```
+     .youtube.com    TRUE    /    TRUE    1735689600    VISITOR_INFO1_LIVE    abc123...
+     .youtube.com    TRUE    /    TRUE    1735689600    LOGIN_INFO    abc123...
+     ```
+   - The cookies are temporarily stored on the server during download and automatically cleaned up
 
 ## Common Issues
 
