@@ -28,14 +28,69 @@ import ffmpeg
 import asyncio
 import edge_tts
 import re
+import json
 from config import LOCAL_STORAGE_PATH
 from time import sleep
 import kokoro_onnx
 import wget
+from datetime import datetime
 
 # Download kokoro model files if they don't exist
 MODEL_PATH = os.path.join(LOCAL_STORAGE_PATH, 'kokoro-v1.0.onnx')
 VOICES_PATH = os.path.join(LOCAL_STORAGE_PATH, 'voices-v1.0.bin')
+
+async def get_edge_voices():
+    """Get list of available Edge TTS voices"""
+    voices = await edge_tts.list_voices()
+    return [
+        {
+            'name': voice['ShortName'],
+            'gender': voice['Gender'],
+            'locale': voice['Locale'],
+            'engine': 'edge-tts'
+        }
+        for voice in voices
+    ]
+
+def get_streamlabs_voices():
+    """Get list of available Streamlabs Polly voices"""
+    VALID_VOICES = [
+        "Brian", "Emma", "Russell", "Joey", "Matthew", "Joanna", "Kimberly", 
+        "Amy", "Geraint", "Nicole", "Justin", "Ivy", "Kendra", "Salli", "Raveena"
+    ]
+    return [
+        {
+            'name': voice,
+            'engine': 'streamlabs-polly',
+            'locale': 'en-US'
+        }
+        for voice in VALID_VOICES
+    ]
+
+def get_kokoro_voices():
+    """Get list of available Kokoro voices"""
+    ensure_kokoro_files()
+    kokoro = kokoro_onnx.Kokoro(MODEL_PATH, VOICES_PATH)
+    voices = kokoro.get_voices()
+    return [
+        {
+            'name': voice,
+            'engine': 'kokoro',
+            'locale': 'en-US'  # Kokoro currently supports English
+        }
+        for voice in voices
+    ]
+
+async def _list_voices_async():
+    """Internal async function to list all available voices"""
+    edge_voices = await get_edge_voices()
+    streamlabs_voices = get_streamlabs_voices()
+    kokoro_voices = get_kokoro_voices()
+    return edge_voices + streamlabs_voices + kokoro_voices
+
+def list_voices():
+    """List all available voices from all TTS engines"""
+    return asyncio.run(_list_voices_async())
 
 def ensure_kokoro_files():
     """Download kokoro model files if they don't exist"""
@@ -97,7 +152,7 @@ def chunk_text_for_tts(text, max_chars):
     return all_chunks
 
 
-def handle_streamlabs_polly_tts(text, voice, job_id):
+def handle_streamlabs_polly_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
     """
     Generate TTS audio using Streamlabs Polly and save it to LOCAL_STORAGE_PATH.
     Handles long text by chunking and combining audio files using ffmpeg.
@@ -187,7 +242,7 @@ def handle_streamlabs_polly_tts(text, voice, job_id):
         raise
 
 
-def handle_edge_tts(text, voice, job_id):
+def handle_edge_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
     """
     Generate TTS audio using edge-tts, upload to cloud, and return the cloud URL.
     """
@@ -228,7 +283,7 @@ def handle_edge_tts(text, voice, job_id):
 
 
 
-def handle_kokoro_tts(text, voice, job_id):
+def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
     """
     Generate TTS audio using kokoro-onnx and save it to LOCAL_STORAGE_PATH.
     Uses Kokoro-82M model with ONNX runtime.
@@ -261,14 +316,23 @@ TTS_HANDLERS = {
     'kokoro': handle_kokoro_tts
 }
 
-def generate_tts(tts, text, voice, job_id):
+def generate_tts(tts, text, voice, job_id, rate=None, volume=None, pitch=None):
     """
-    Generate TTS audio using the specified tts and return the file path.
+    Generate TTS audio and subtitle files using the specified tts.
+    Returns tuple of (audio_file_path, subtitle_file_path).
     """
-    # Default to edge-tts if no tts is specified
-    
     if tts not in TTS_HANDLERS:
         raise ValueError(f"Unsupported tts: {tts}")
 
-    # Call the appropriate handler function
-    return TTS_HANDLERS[tts](text, voice, job_id)
+    # Generate audio file
+    audio_file = TTS_HANDLERS[tts](text, voice, job_id, rate, volume, pitch)
+    
+    # Generate subtitle file
+    subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.srt")
+    words = text.split()
+    with open(subtitle_file, 'w', encoding='utf-8') as f:
+        f.write("1\n")
+        f.write("00:00:00,000 --> 00:00:10,000\n")  # Default 10-second duration
+        f.write(text + "\n\n")
+    
+    return audio_file, subtitle_file
