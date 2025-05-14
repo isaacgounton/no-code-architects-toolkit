@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
         "additionalProperties": False
     }
 )
-@queue_task_wrapper(bypass_queue=True)
+@queue_task_wrapper(bypass_queue=False)
 def get_media_duration(job_id, data):
     # Get the validated and type-converted data
     validated_data = getattr(request, '_validated_json', request.json)
