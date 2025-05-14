@@ -108,23 +108,28 @@ def create_app():
                         "response": None
                     })
                     
-                    response = f(job_id=job_id, data=data, *args, **kwargs)
+                    response = f(*args, **kwargs)  # Don't pass job_id and data if not using queue
                     run_time = time.time() - start_time
-                    
-                    response_obj = {
-                        "code": response[2],
-                        "id": data.get("id"),
-                        "job_id": job_id,
-                        "response": response[0] if response[2] == 200 else None,
-                        "message": "success" if response[2] == 200 else response[0],
-                        "run_time": round(run_time, 3),
-                        "queue_time": 0,
-                        "total_time": round(run_time, 3),
-                        "pid": pid,
-                        "queue_id": queue_id,
-                        "queue_length": task_queue.qsize(),
-                        "build_number": BUILD_NUMBER  # Add build number to response
-                    }
+
+                    # Handle different response formats
+                    if isinstance(response, tuple) and len(response) == 3:
+                        response_obj = {
+                            "code": response[2],
+                            "id": data.get("id"),
+                            "job_id": job_id,
+                            "response": response[0] if response[2] == 200 else None,
+                            "message": "success" if response[2] == 200 else response[0],
+                            "run_time": round(run_time, 3),
+                            "queue_time": 0,
+                            "total_time": round(run_time, 3),
+                            "pid": pid,
+                            "queue_id": queue_id,
+                            "queue_length": task_queue.qsize(),
+                            "build_number": BUILD_NUMBER
+                        }
+                    else:
+                        # Direct response (not using the standard tuple format)
+                        return response
                     
                     # Log job status as done
                     log_job_status(job_id, {
