@@ -1,5 +1,5 @@
-from flask import Blueprint
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, request
+from app_utils import *
 from services.authentication import authenticate
 from services.v1.media.media_duration import get_media_duration_from_url
 import logging
@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
         "additionalProperties": False
     }
 )
-@queue_task_wrapper(bypass_queue=False)
+@queue_task_wrapper(bypass_queue=True)
 def get_media_duration(job_id, data):
-    media_url = data.get("media_url")
+    # Get the validated and type-converted data
+    validated_data = getattr(request, '_validated_json', request.json)
+    media_url = validated_data['media_url']
+    
     try:
         logger.info(f"Job {job_id}: Received media duration request for {media_url}")
         duration = get_media_duration_from_url(media_url)
