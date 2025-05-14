@@ -21,6 +21,7 @@ import threading
 import uuid
 import os
 import time
+from functools import wraps
 from version import BUILD_NUMBER  # Import the BUILD_NUMBER
 from app_utils import log_job_status  # Import the log_job_status function
 
@@ -91,6 +92,7 @@ def create_app():
     # Decorator to add tasks to the queue or bypass it
     def queue_task(bypass_queue=False):
         def decorator(f):
+            @wraps(f)  # Add functools.wraps to preserve the original function name
             def wrapper(*args, **kwargs):
                 job_id = str(uuid.uuid4())
                 data = request.json if request.is_json else {}
