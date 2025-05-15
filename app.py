@@ -110,7 +110,7 @@ def create_app():
                         "response": None
                     })
                     
-                    response = f(*args, **kwargs)  # Don't pass job_id and data if not using queue
+                    response = f(job_id=job_id, data=data, *args, **kwargs)  # Pass job_id and data consistently
                     run_time = time.time() - start_time
 
                     # Handle different response formats
