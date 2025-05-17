@@ -23,7 +23,8 @@ import re
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
-from services.v1.audio.speech import TTS_HANDLERS
+from services.v1.audio.speech import generate_tts # Changed import
+import uuid # Added import
 from typing import List, Dict, Any, Optional, Union
 import aiohttp
 from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
@@ -42,30 +43,60 @@ RESOLUTIONS = {
     "1:1": (1080, 1080)
 }
 
-def synthesize_voice_sync(text: str, tts: str, voice: str, output_path: str) -> str:
+def synthesize_voice_sync(text: str, tts_engine: str, voice: str, target_mp3_path: str) -> str:
     """
-    Synchronously synthesize voice from text using the specified TTS engine
+    Synchronously synthesize voice to MP3 format at the target_mp3_path
+    using the main generate_tts service.
     """
     try:
-        if tts not in TTS_HANDLERS:
-            raise ValueError(f"Unsupported TTS engine: {tts}")
+        # Generate a unique job_id for the call to generate_tts
+        tts_job_id = str(uuid.uuid4())
+
+        # Call the main TTS service, requesting MP3 format
+        # generate_tts returns (audio_file_path, subtitle_file_path)
+        # We expect audio_file_path to be like /tmp/{tts_job_id}.mp3
+        temp_mp3_path, _ = generate_tts(
+            tts=tts_engine,
+            text=text,
+            voice=voice,
+            job_id=tts_job_id,
+            output_format="mp3" 
+            # rate, volume, pitch can be added if needed by scripted_video
+        )
+
+        # Ensure the target directory for the final MP3 exists
+        target_dir = os.path.dirname(target_mp3_path)
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+
+        # Move the generated MP3 to the specific path required by the video script
+        if os.path.exists(temp_mp3_path):
+            os.rename(temp_mp3_path, target_mp3_path)
+        else:
+            # This case should ideally be handled by generate_tts raising an error
+            raise FileNotFoundError(f"generate_tts did not produce the expected MP3 file at {temp_mp3_path}")
             
-        # Call the appropriate TTS handler
-        return TTS_HANDLERS[tts](text, voice, os.path.basename(output_path), output_path)
+        return target_mp3_path
     except Exception as e:
-        logger.error(f"Voice synthesis error: {str(e)}")
+        logger.error(f"Voice synthesis error in synthesize_voice_sync: {str(e)}")
+        # Log specific details if it's an ffmpeg error from generate_tts
+        if isinstance(e, ffmpeg.Error) and e.stderr:
+            logger.error(f"FFmpeg stderr: {e.stderr.decode('utf8', errors='ignore')}")
         raise
 
-async def synthesize_voice(text: str, tts: str, voice: str, output_path: str) -> str:
+async def synthesize_voice(text: str, tts_engine: str, voice: str, target_mp3_path: str) -> str:
     """
-    Asynchronously synthesize voice from text using the specified TTS engine
+    Asynchronously synthesize voice to MP3 format at the target_mp3_path.
     """
     try:
+        # Run the synchronous synthesis in an executor
         return await asyncio.get_event_loop().run_in_executor(
-            None, synthesize_voice_sync, text, tts, voice, output_path
+            None, synthesize_voice_sync, text, tts_engine, voice, target_mp3_path
         )
     except Exception as e:
-        logger.error(f"Voice synthesis error: {str(e)}")
+        logger.error(f"Asynchronous voice synthesis error: {str(e)}")
+        if isinstance(e, ffmpeg.Error) and e.stderr: # Log ffmpeg error details
+            logger.error(f"FFmpeg stderr (async): {e.stderr.decode('utf8', errors='ignore')}")
         raise
 
 async def fetch_from_pexels(query: str, media_type: str = "video") -> List[Dict[str, Any]]:

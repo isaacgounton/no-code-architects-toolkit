@@ -300,41 +300,19 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
     # Generate audio (returns numpy array and sample rate)
     samples, sr = kokoro.create(text, voice=voice, lang="en-us")
     
-    # The 'rate' parameter is mistakenly receiving the actual full output_path from the caller
-    # The 'job_id' parameter is mistakenly receiving os.path.basename(actual_output_path)
-    actual_output_path = rate 
-    if not actual_output_path: # Should not happen if called correctly by current synthesize_voice_sync
-        err_msg = "handle_kokoro_tts did not receive the output path correctly (expected in 'rate' parameter)."
-        print(err_msg) # Using print as logger might not be configured here
-        raise ValueError(err_msg)
-
-    # Ensure the target directory exists
-    os.makedirs(os.path.dirname(actual_output_path), exist_ok=True)
-
-    # Temporary path for WAV file
-    temp_wav_path = actual_output_path + ".tmp.wav"
+    # Prepare output path for the .wav file
+    # 'job_id' is the unique identifier passed by generate_tts
+    output_filename = f"{job_id}.wav"
+    wav_output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
     
-    # Save audio using soundfile to temporary WAV
+    # Ensure the target directory exists (LOCAL_STORAGE_PATH should exist, but good practice)
+    os.makedirs(LOCAL_STORAGE_PATH, exist_ok=True)
+
+    # Save audio using soundfile to WAV
     import soundfile as sf
-    sf.write(temp_wav_path, samples, sr)
-
-    # Convert WAV to MP3 at the final actual_output_path
-    try:
-        (
-            ffmpeg
-            .input(temp_wav_path)
-            .output(actual_output_path, audio_codec='libmp3lame', qscale=2) # qscale for quality
-            .run(cmd=['ffmpeg', '-nostdin'], overwrite_output=True, quiet=True)
-        )
-        if os.path.exists(temp_wav_path):
-            os.remove(temp_wav_path)
-    except ffmpeg.Error as e:
-        print(f"FFmpeg error during WAV to MP3 conversion: {e.stderr.decode('utf8') if e.stderr else str(e)}")
-        if os.path.exists(temp_wav_path): # Cleanup temp file even on error
-            os.remove(temp_wav_path)
-        raise  # Re-raise the ffmpeg error
-
-    return actual_output_path
+    sf.write(wav_output_path, samples, sr)
+    
+    return wav_output_path # Return the path to the generated .wav file
 
 TTS_HANDLERS = {
     'edge-tts': handle_edge_tts,
@@ -342,23 +320,70 @@ TTS_HANDLERS = {
     'kokoro': handle_kokoro_tts
 }
 
-def generate_tts(tts, text, voice, job_id, rate=None, volume=None, pitch=None):
+def generate_tts(tts: str, text: str, voice: str, job_id: str, 
+                 output_format: str = "mp3", 
+                 rate: str = None, volume: float = None, pitch: str = None):
     """
     Generate TTS audio and subtitle files using the specified tts.
+    Allows choosing output format for Kokoro (wav or mp3).
     Returns tuple of (audio_file_path, subtitle_file_path).
     """
     if tts not in TTS_HANDLERS:
         raise ValueError(f"Unsupported tts: {tts}")
 
-    # Generate audio file
-    audio_file = TTS_HANDLERS[tts](text, voice, job_id, rate, volume, pitch)
+    # Generate audio file using the appropriate handler
+    # Handlers are expected to save to a path like /tmp/{job_id}.{original_format}
+    raw_audio_file_path = TTS_HANDLERS[tts](text, voice, job_id, rate, volume, pitch)
     
+    final_audio_file_path = raw_audio_file_path
+
+    if tts == 'kokoro':
+        # Kokoro handler now returns a .wav file path: /tmp/{job_id}.wav
+        if output_format.lower() == 'mp3':
+            wav_path = raw_audio_file_path
+            # Ensure wav_path ends with .wav before trying to replace extension
+            if isinstance(wav_path, str) and wav_path.lower().endswith(".wav"):
+                mp3_path = os.path.splitext(wav_path)[0] + ".mp3"
+            else: # Should not happen if kokoro handler is correct and returns a string path
+                print(f"Warning: Kokoro handler returned unexpected path for WAV: {wav_path}. Attempting MP3 conversion with default naming.")
+                mp3_path = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.mp3")
+
+
+            try:
+                (
+                    ffmpeg
+                    .input(wav_path)
+                    .output(mp3_path, acodec='libmp3lame', **{'q:a': 2})
+                    .run(cmd=['ffmpeg', '-nostdin'], overwrite_output=True, quiet=True)
+                )
+                # Cleanup original WAV if conversion was successful and paths are different
+                if os.path.exists(wav_path) and wav_path != mp3_path and os.path.exists(mp3_path):
+                    os.remove(wav_path)
+                final_audio_file_path = mp3_path
+            except ffmpeg.Error as e:
+                # Use print as logger might not be configured when this module is imported/used standalone
+                print(f"FFmpeg error during WAV to MP3 conversion in generate_tts for job {job_id}: {e.stderr.decode('utf8') if e.stderr else str(e)}")
+                # Fallback to returning WAV path if conversion fails
+                final_audio_file_path = wav_path 
+        elif output_format.lower() == 'wav':
+            final_audio_file_path = raw_audio_file_path # Already WAV
+        else:
+            raise ValueError(f"Unsupported output_format '{output_format}' for Kokoro TTS. Choose 'mp3' or 'wav'.")
+    
+    # For other TTS engines (edge-tts, streamlabs-polly), they already output MP3.
+    # The output_format parameter is primarily for Kokoro.
+    # If they were to support WAV, similar logic would be needed here.
+    # If output_format is 'wav' for an mp3-only engine, we currently just return the mp3.
+    elif output_format.lower() == 'wav' and final_audio_file_path.lower().endswith('.mp3'):
+        print(f"Warning: Requested 'wav' output for TTS engine '{tts}' which produces MP3. Returning MP3 path: {final_audio_file_path}")
+
+
     # Generate subtitle file
     subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.srt")
-    words = text.split()
+    # Basic subtitle generation, consider improving timing if possible
     with open(subtitle_file, 'w', encoding='utf-8') as f:
         f.write("1\n")
-        f.write("00:00:00,000 --> 00:00:10,000\n")  # Default 10-second duration
+        f.write("00:00:00,000 --> 00:00:10,000\n")  # Placeholder duration
         f.write(text + "\n\n")
     
-    return audio_file, subtitle_file
+    return final_audio_file_path, subtitle_file

@@ -58,6 +58,7 @@ def get_voices():
         "pitch": {"type": "string", "pattern": "^[+-]\\d+Hz$"},
         "webhook_url": {"type": "string", "format": "uri"},
         "id": {"type": "string"},
+        "output_format": {"type": "string", "enum": ["mp3", "wav"], "default": "mp3"}
     },
     "required": ["text"],
     "additionalProperties": False
@@ -67,6 +68,7 @@ def text_to_speech(job_id, data):
     tts = data.get("tts", "edge-tts")
     text = data["text"]
     voice = data.get("voice")
+    output_format = data.get("output_format", "mp3") # Get output_format, default to mp3
     rate = data.get("rate")
     volume = data.get("volume")
     pitch = data.get("pitch")
@@ -83,6 +85,7 @@ def text_to_speech(job_id, data):
             text=text,
             voice=voice,
             job_id=job_id,
+            output_format=output_format, # Pass output_format
             rate=rate,
             volume=volume,
             pitch=pitch
