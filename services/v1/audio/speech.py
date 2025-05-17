@@ -36,10 +36,23 @@ import kokoro_onnx
 import wget
 from datetime import datetime
 
-try:
-    nltk.download('punkt')
-except Exception as e:
-    print(f"Warning: Could not download NLTK punkt: {str(e)}")
+def ensure_nltk_data():
+    """Ensure NLTK data is available, downloading if needed"""
+    import os
+    nltk_dir = os.path.expanduser('~/nltk_data')
+    punkt_path = os.path.join(nltk_dir, 'tokenizers', 'punkt')
+    
+    # Only attempt download if data directory doesn't exist
+    if not os.path.exists(punkt_path):
+        try:
+            os.makedirs(os.path.dirname(punkt_path), exist_ok=True)
+            nltk.download('punkt', quiet=True)
+        except Exception as e:
+            print(f"Warning: Could not download NLTK punkt: {str(e)}")
+            # Continue anyway - data might already be available system-wide
+
+# Initialize NLTK data
+ensure_nltk_data()
 
 # Download kokoro model files if they don't exist
 MODEL_PATH = os.path.join(LOCAL_STORAGE_PATH, 'kokoro-v1.0.onnx')
@@ -387,7 +400,6 @@ TTS_HANDLERS = {
 def generate_tts(tts: str, text: str, voice: str, job_id: str,
                  output_format: str = "mp3",
                  rate: str = None, volume: float = None, pitch: str = None,
-                 return_timestamps: bool = False,
                  subtitle_format: str = "srt"):
     """
     Generate TTS audio and subtitle files using the specified tts.
@@ -401,7 +413,7 @@ def generate_tts(tts: str, text: str, voice: str, job_id: str,
         rate (str): Speech speed adjustment
         volume (float): Audio volume
         pitch (str): Pitch adjustment
-        return_timestamps (bool): Return word timing info for subtitles
+        subtitle_format (str): Format for subtitle file ('srt' or 'vtt')
     
     Returns:
         tuple: (audio_file_path, subtitle_file_path)
