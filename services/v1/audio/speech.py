@@ -300,15 +300,41 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
     # Generate audio (returns numpy array and sample rate)
     samples, sr = kokoro.create(text, voice=voice, lang="en-us")
     
-    # Prepare output path
-    output_filename = f"{job_id}.wav"
-    output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
+    # The 'rate' parameter is mistakenly receiving the actual full output_path from the caller
+    # The 'job_id' parameter is mistakenly receiving os.path.basename(actual_output_path)
+    actual_output_path = rate 
+    if not actual_output_path: # Should not happen if called correctly by current synthesize_voice_sync
+        err_msg = "handle_kokoro_tts did not receive the output path correctly (expected in 'rate' parameter)."
+        print(err_msg) # Using print as logger might not be configured here
+        raise ValueError(err_msg)
+
+    # Ensure the target directory exists
+    os.makedirs(os.path.dirname(actual_output_path), exist_ok=True)
+
+    # Temporary path for WAV file
+    temp_wav_path = actual_output_path + ".tmp.wav"
     
-    # Save audio using soundfile
+    # Save audio using soundfile to temporary WAV
     import soundfile as sf
-    sf.write(output_path, samples, sr)
-    
-    return output_path
+    sf.write(temp_wav_path, samples, sr)
+
+    # Convert WAV to MP3 at the final actual_output_path
+    try:
+        (
+            ffmpeg
+            .input(temp_wav_path)
+            .output(actual_output_path, audio_codec='libmp3lame', qscale=2) # qscale for quality
+            .run(cmd=['ffmpeg', '-nostdin'], overwrite_output=True, quiet=True)
+        )
+        if os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
+    except ffmpeg.Error as e:
+        print(f"FFmpeg error during WAV to MP3 conversion: {e.stderr.decode('utf8') if e.stderr else str(e)}")
+        if os.path.exists(temp_wav_path): # Cleanup temp file even on error
+            os.remove(temp_wav_path)
+        raise  # Re-raise the ffmpeg error
+
+    return actual_output_path
 
 TTS_HANDLERS = {
     'edge-tts': handle_edge_tts,
