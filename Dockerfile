@@ -186,8 +186,15 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 8080
 
+# Create directories for assets within /app
+RUN mkdir -p /app/assets
+
+# Create placeholder video file within /app/assets
+RUN ffmpeg -f lavfi -i color=c=black:s=1280x720:d=10 -c:v libx264 /app/assets/placeholder.mp4
+
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    DEFAULT_PLACEHOLDER_VIDEO="/app/assets/placeholder.mp4"
 
 RUN echo '#!/bin/bash\n\
 gunicorn --bind 0.0.0.0:8080 \

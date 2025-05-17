@@ -31,6 +31,24 @@ LOCAL_STORAGE_PATH = os.environ.get('LOCAL_STORAGE_PATH', '/tmp')
 GCP_SA_CREDENTIALS = os.environ.get('GCP_SA_CREDENTIALS', '')
 GCP_BUCKET_NAME = os.environ.get('GCP_BUCKET_NAME', '')
 
+# Video service API keys
+PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
+if not PEXELS_API_KEY:
+    raise ValueError("PEXELS_API_KEY environment variable is not set")
+
+PIXABAY_API_KEY = os.environ.get('PIXABAY_API_KEY')
+if not PIXABAY_API_KEY:
+    raise ValueError("PIXABAY_API_KEY environment variable is not set")
+
+# Default video placeholder path
+DEFAULT_PLACEHOLDER_VIDEO = os.environ.get('DEFAULT_PLACEHOLDER_VIDEO', 
+    os.path.join(LOCAL_STORAGE_PATH, "assets", "placeholder.mp4"))
+
+# Ensure placeholder path exists
+placeholder_dir = os.path.dirname(DEFAULT_PLACEHOLDER_VIDEO)
+if not os.path.exists(placeholder_dir):
+    os.makedirs(placeholder_dir, exist_ok=True)
+
 def validate_env_vars(provider):
 
     """ Validate the necessary environment variables for the selected storage provider """
