@@ -424,10 +424,15 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
                 
                 # Concatenate with crossfade transitions
                 try:
+                    # Create a proper transition function
+                    def transition(t):
+                        return min(1, 2*t) * min(1, 2*(1-t))
+                    transition.duration = 1  # Add duration attribute
+
                     final_video = concatenate_videoclips(
                         video_clips,
                         method="compose",
-                        transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
+                        transition=transition
                     )
                 except Exception as e:
                     raise RuntimeError(f"Failed to concatenate video clips: {str(e)}")
@@ -505,10 +510,15 @@ def concatenate_videos(video_paths: List[str], output_path: str) -> str:
         final_video = None
         try:
             # Concatenate with crossfade transitions
+            # Create a proper transition function
+            def transition(t):
+                return min(1, 2*t) * min(1, 2*(1-t))
+            transition.duration = 1  # Add duration attribute
+                
             final_video = concatenate_videoclips(
                 clips,
                 method="compose",
-                transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
+                transition=transition
             )
 
             if not hasattr(final_video, 'duration') or final_video.duration is None:
