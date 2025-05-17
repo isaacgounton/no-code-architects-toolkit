@@ -110,7 +110,9 @@ def scripted_video_v1(job_id, data):
     # Log job parameters for tracking and debugging
     logger.info(f"Job {job_id}: Received scripted video request" + 
                 (f" with id '{request_id}'" if request_id else ""))
-    logger.info(f"Job {job_id}: Script length: {len(script)} chars, paragraph count: {script.count('\\n\\n')+1}")
+    # Count paragraphs by splitting on double newlines and counting non-empty items
+    paragraph_count = len([p for p in script.split("\n\n") if p.strip()])
+    logger.info(f"Job {job_id}: Script length: {len(script)} chars, paragraph count: {paragraph_count}")
     logger.info(f"Job {job_id}: TTS: {tts}, Voice: {voice}, Aspect ratio: {aspect_ratio}")
     logger.info(f"Job {job_id}: Add captions: {add_captions}")
     
