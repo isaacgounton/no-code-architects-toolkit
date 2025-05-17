@@ -14,21 +14,20 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from flask import Blueprint, request, Response, stream_with_context
 from services.v1.chat.completions import ChatService, ChatCompletionError
 from typing import Tuple, Union, Dict, Any
+import time
 
 # Create blueprint
 v1_chat_completions_bp = Blueprint('v1_chat_completions', __name__)
 
-def validate_request() -> Tuple[Union[Dict[str, Any], str], int]:
-    """Validate the chat completion request"""
-    if not request.is_json:
-        return "Request must be JSON", 400
-
-    data = request.get_json()
-    
+def validate_request(data: Dict) -> Tuple[Union[Dict[str, Any], str], int]:
+    """Validate the chat completion request data"""
     # Validate required fields
+    if not isinstance(data, dict):
+        return "Invalid request data", 400
+
     if 'messages' not in data:
         return "Missing required field: messages", 400
     
@@ -66,17 +65,21 @@ def validate_request() -> Tuple[Union[Dict[str, Any], str], int]:
     return data, 200
 
 @v1_chat_completions_bp.route('/v1/chat/completions', methods=['POST'])
-def chat_completion() -> Tuple[Union[Dict[str, Any], str], int]:
+def chat_completion() -> Union[Response, Tuple[Dict[str, Any], int]]:
     """
     Handle chat completion requests
     
     Returns:
-        Tuple containing the response data and status code
+        Either a streaming response or a tuple containing the response data and status code
     """
-    # Validate request
-    data, status = validate_request()
+    if not request.is_json:
+        return "Request must be JSON", 400
+
+    # Get and validate request data
+    data = request.get_json()
+    validated_data, status = validate_request(data)
     if status != 200:
-        return data, status
+        return validated_data, status
     
     try:
         # Initialize chat service
