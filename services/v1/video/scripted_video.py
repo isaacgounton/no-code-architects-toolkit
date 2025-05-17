@@ -27,6 +27,7 @@ from services.v1.audio.speech import generate_tts # Changed import
 import uuid # Added import
 from typing import List, Dict, Any, Optional, Union
 import aiohttp
+import ffmpeg  # Added import for ffmpeg error handling
 from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
 from services.v1.video.caption_video import process_captioning_v1
 import tempfile
@@ -446,99 +447,144 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
+        
+    # Initialize variables to None for cleanup in finally
+    video = None
+    audio = None
+    final_video = None
+    video_clips = []
+    
     try:
         # Load video and audio with error checking
         try:
             video = VideoFileClip(video_path)
             if not hasattr(video, 'duration') or video.duration is None:
-                raise ValueError("Video clip has invalid duration")
+                raise ValueError(f"Video clip has invalid duration: {video_path}")
+            logger.info(f"Loaded video file: {video_path}, duration: {video.duration}s")
         except Exception as e:
-            raise RuntimeError(f"Failed to load video file: {str(e)}")
+            raise RuntimeError(f"Failed to load video file {video_path}: {str(e)}")
             
         try:
             audio = AudioFileClip(audio_path)
             if not hasattr(audio, 'duration') or audio.duration is None:
-                raise ValueError("Audio clip has invalid duration")
+                raise ValueError(f"Audio clip has invalid duration: {audio_path}")
+            logger.info(f"Loaded audio file: {audio_path}, duration: {audio.duration}s")
         except Exception as e:
-            if 'video' in locals():
-                video.close()  # Clean up video if audio fails
-            raise RuntimeError(f"Failed to load audio file: {str(e)}")
+            raise RuntimeError(f"Failed to load audio file {audio_path}: {str(e)}")
         
         if video_duration < audio_duration:
             # Create a list of video clips that will loop
             num_loops = int(audio_duration / video_duration) + 1
-            video_clips = []
+            logger.info(f"Video shorter than audio - creating {num_loops} loops of the video")
             
-            try:
-                # Create new instances of VideoFileClip for each loop
-                for _ in range(num_loops):
-                    try:
-                        clip = VideoFileClip(video_path)
-                        if not hasattr(clip, 'duration') or clip.duration is None:
-                            raise ValueError("Video clip has invalid duration")
-                        video_clips.append(clip)
-                    except Exception as e:
-                        # Clean up any clips we managed to create before the error
-                        for created_clip in video_clips:
-                            try:
-                                created_clip.close()
-                            except:
-                                pass
-                        raise RuntimeError(f"Failed to create video clip: {str(e)}")
-                
-                # Import required transition
+            # Create new instances of VideoFileClip for each loop
+            for i in range(num_loops):
                 try:
-                    # Simple concatenation without transitions
-                    final_video = concatenate_videoclips(
-                        video_clips,
-                        method="chain"  # Use simpler chain method instead of compose
-                    )
+                    clip = VideoFileClip(video_path)
+                    if not hasattr(clip, 'duration') or clip.duration is None or clip.duration <= 0:
+                        logger.warning(f"Loop {i}: Skipping clip with invalid duration")
+                        continue
+                    video_clips.append(clip)
+                    logger.info(f"Loop {i}: Added clip with duration {clip.duration}s")
                 except Exception as e:
-                    raise RuntimeError(f"Failed to concatenate video clips: {str(e)}")
-            finally:
-                # Close all video clips
-                for clip in video_clips:
-                    try:
-                        clip.close()
-                    except:
-                        pass
+                    logger.error(f"Failed to create video clip for loop {i}: {str(e)}")
+                    # Continue with the clips we have
+            
+            if not video_clips:
+                raise RuntimeError("Failed to create any valid video clips for looping")
+                
+            # Import required transition
+            try:
+                # Simple concatenation without transitions
+                logger.info(f"Concatenating {len(video_clips)} clips with chain method")
+                final_video = concatenate_videoclips(
+                    video_clips,
+                    method="chain"  # Use simpler chain method instead of compose
+                )
+                
+                if final_video is None:
+                    raise RuntimeError("concatenate_videoclips returned None")
+                    
+                if not hasattr(final_video, 'duration') or final_video.duration is None or final_video.duration <= 0:
+                    raise ValueError(f"Concatenated video has invalid duration: {getattr(final_video, 'duration', None)}")
+                    
+                logger.info(f"Successfully concatenated clips. Final duration: {final_video.duration}s")
+            except Exception as e:
+                raise RuntimeError(f"Failed to concatenate video clips: {str(e)}")
             
             # Calculate safe duration to avoid frame access issues
-            safe_duration = min(final_video.duration, audio_duration)
-            if safe_duration <= 0:
-                raise ValueError("Invalid video duration after concatenation")
-                
-            logger.info(f"Trimming video to {safe_duration}s to match audio")
             try:
-                # Trim to match audio duration
-                final_video = final_video.subclip(0, safe_duration - 0.1)  # Subtract small buffer to avoid edge case
+                safe_duration = min(final_video.duration, audio_duration) 
+                if safe_duration <= 0:
+                    raise ValueError(f"Invalid calculated safe_duration: {safe_duration}")
+                    
+                logger.info(f"Trimming video to {safe_duration}s to match audio")
+                # Trim to match audio duration with a small buffer
+                buffer = min(0.1, safe_duration * 0.05)  # Use smaller buffer for very short clips
+                trim_duration = safe_duration - buffer
+                
+                if trim_duration <= 0:
+                    raise ValueError(f"Invalid trim_duration after subtracting buffer: {trim_duration}")
+                
+                logger.info(f"Final trim duration with buffer: {trim_duration}s")
+                final_video = final_video.subclip(0, trim_duration)
+                
+                if final_video is None:
+                    raise RuntimeError("subclip operation returned None")
+                    
+                logger.info(f"Successfully trimmed video to {trim_duration}s")
             except Exception as e:
-                logger.error(f"Error trimming video: {str(e)}")
-                raise
+                logger.error(f"Error during trim operation: {str(e)}")
+                # If trimming fails but we have a valid concatenated video, try to continue with it
+                if final_video is None:
+                    raise
         else:
+            logger.info(f"Video longer than audio - trimming single clip")
+            
             # Calculate safe duration for single clip
-            safe_duration = min(video.duration, audio_duration)
-            if safe_duration <= 0:
-                raise ValueError("Invalid video duration for single clip")
-                
             try:
-                # Just trim the video with buffer
-                final_video = video.subclip(0, safe_duration - 0.1)
+                safe_duration = min(video.duration, audio_duration)
+                if safe_duration <= 0:
+                    raise ValueError(f"Invalid calculated safe_duration: {safe_duration}")
+                
+                # Use smaller buffer for very short clips
+                buffer = min(0.1, safe_duration * 0.05)
+                trim_duration = safe_duration - buffer
+                
+                if trim_duration <= 0:
+                    raise ValueError(f"Invalid trim_duration after subtracting buffer: {trim_duration}")
+                    
+                logger.info(f"Trimming video to {trim_duration}s")
+                final_video = video.subclip(0, trim_duration)
+                
+                if final_video is None:
+                    raise RuntimeError("subclip operation returned None")
+                    
+                logger.info(f"Successfully trimmed video to {trim_duration}s")
             except Exception as e:
                 logger.error(f"Error trimming single video: {str(e)}")
-                raise
+                # If trimming fails, try to use the original video
+                logger.info("Falling back to original video without trimming")
+                final_video = video.copy()
+                if final_video is None:
+                    raise RuntimeError("Failed to create copy of original video")
         
+        # Verify we have a valid video at this point
+        if final_video is None:
+            raise RuntimeError("No valid video available before audio combination")
+            
         logger.info(f"Setting audio track (duration={audio.duration}s)")
         try:
             # Set audio with validation
-            if final_video is None:
-                raise ValueError("Video processing failed before audio combination")
             final_video = final_video.set_audio(audio)
+            if final_video is None:
+                raise RuntimeError("set_audio operation returned None")
         except Exception as e:
             logger.error(f"Error setting audio: {str(e)}")
             raise
         
         # Write output with high quality
+        logger.info(f"Writing final video to {output_path}")
         final_video.write_videofile(
             output_path,
             codec='libx264',
@@ -548,15 +594,30 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
             bitrate="8000k"
         )
         
-        # Close clips to release resources
-        video.close()
-        audio.close()
-        final_video.close()
-        
+        logger.info(f"Successfully created combined video at {output_path}")
         return output_path
     except Exception as e:
         logger.error(f"Error combining video and audio: {str(e)}")
         raise
+    finally:
+        # Clean up resources
+        logger.info("Cleaning up video and audio resources")
+        
+        # Close video clips used for looping
+        for clip in video_clips:
+            try:
+                if clip is not None:
+                    clip.close()
+            except Exception as e:
+                logger.warning(f"Error closing clip: {str(e)}")
+        
+        # Close main resources
+        for resource in [video, audio, final_video]:
+            try:
+                if resource is not None:
+                    resource.close()
+            except Exception as e:
+                logger.warning(f"Error closing resource: {str(e)}")
 
 def concatenate_videos(video_paths: List[str], output_path: str) -> str:
     """
