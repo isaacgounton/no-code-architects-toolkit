@@ -186,11 +186,11 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 8080
 
-# Create directories for assets within /app
-RUN mkdir -p /app/assets
+# Create directories for assets
+RUN mkdir -p /tmp/assets
 
-# Create placeholder video file within /app/assets
-RUN ffmpeg -f lavfi -i color=c=black:s=1280x720:d=10 -c:v libx264 /app/assets/placeholder.mp4
+# Create placeholder video file
+RUN ffmpeg -f lavfi -i color=c=black:s=1280x720:d=10 -c:v libx264 /tmp/assets/placeholder.mp4
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

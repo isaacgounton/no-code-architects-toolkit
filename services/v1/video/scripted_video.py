@@ -437,6 +437,12 @@ async def process_scene(
     # Generate voice for scene
     audio_path = os.path.join(scene_dir, "voice.mp3")
     await synthesize_voice(scene, tts, voice, audio_path)
+
+    # Verify that the audio file was created
+    if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+        err_msg = f"TTS failed to create a valid audio file at {audio_path} for scene: {scene_num}"
+        logger.error(err_msg)
+        raise FileNotFoundError(err_msg)
     
     # Get scene duration from audio
     audio_duration = get_media_duration(audio_path)
