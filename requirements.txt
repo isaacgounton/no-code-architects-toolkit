@@ -25,3 +25,10 @@ kokoro-onnx==0.4.7
 soundfile
 wget
 jsonschema>=4.17.3
+Flask-SQLAlchemy
+Flask-Login
+Flask-Migrate
+Flask-WTF
+Flask-Bcrypt
+ffmpeg-python
+email-validator

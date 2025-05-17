@@ -16,18 +16,18 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.extract_keyframes import process_keyframe_extraction
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 extract_keyframes_bp = Blueprint('extract_keyframes', __name__)
 logger = logging.getLogger(__name__)
 
 @extract_keyframes_bp.route('/extract-keyframes', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -38,8 +38,9 @@ logger = logging.getLogger(__name__)
     "required": ["video_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def extract_keyframes(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     video_url = data.get('video_url')
     webhook_url = data.get('webhook_url')
     id = data.get('id')

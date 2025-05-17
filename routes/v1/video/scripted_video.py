@@ -14,11 +14,11 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from flask import Blueprint, jsonify
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, jsonify, current_app # Added current_app
+from app_utils import validate_payload # Removed queue_task_wrapper
 import logging
 from services.v1.video.scripted_video import process_scripted_video_v1
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 import os
 
@@ -26,7 +26,7 @@ v1_video_scripted_bp = Blueprint('v1_video/scripted', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_video_scripted_bp.route('/v1/video/scripted', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -86,8 +86,9 @@ logger = logging.getLogger(__name__)
     "required": ["script"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def scripted_video_v1(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     """
     Generate a video from a script with voice synthesis and optional captions.
     """

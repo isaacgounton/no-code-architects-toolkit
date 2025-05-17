@@ -14,11 +14,11 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from flask import Blueprint, jsonify
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, jsonify, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove queue_task_wrapper
 import logging
 from services.v1.media.convert.media_convert import process_media_convert
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 import os
 
@@ -26,7 +26,7 @@ v1_media_convert_bp = Blueprint('v1_media_convert', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_media_convert_bp.route('/v1/media/convert', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -43,8 +43,9 @@ logger = logging.getLogger(__name__)
     "required": ["media_url", "format"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def convert_media_format(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     media_url = data['media_url']
     output_format = data['format']
     video_codec = data.get('video_codec', 'libx264')
@@ -78,4 +79,4 @@ def convert_media_format(job_id, data):
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during media conversion process - {str(e)}")
-        return {"error": str(e)}, "/v1/media/convert", 500 
+        return {"error": str(e)}, "/v1/media/convert", 500

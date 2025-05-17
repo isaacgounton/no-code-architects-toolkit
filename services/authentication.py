@@ -18,14 +18,22 @@
 
 from functools import wraps
 from flask import request, jsonify
-from config import API_KEY
+from models import APIKey
 
 def authenticate(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        api_key = request.headers.get('X-API-Key')
+        api_key_value = request.headers.get('X-API-Key')
+        api_key = APIKey.query.filter_by(key=api_key_value, revoked=False).first()
         
-        if api_key != API_KEY:
+        if not api_key or not api_key.is_valid():
             return jsonify({"message": "Unauthorized"}), 401
+            
+        # Update last used timestamp
+        from datetime import datetime
+        api_key.last_used_at = datetime.utcnow()
+        from models import db
+        db.session.commit()
+        
         return func(*args, **kwargs)
     return wrapper

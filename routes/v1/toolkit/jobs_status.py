@@ -20,18 +20,19 @@ import os
 import json
 import logging
 import time
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app # Added current_app
 from config import LOCAL_STORAGE_PATH
-from services.authentication import authenticate
-from app_utils import queue_task_wrapper, validate_payload
+# from services.authentication import authenticate # Removed
+from app_utils import validate_payload # Removed queue_task_wrapper
 
 v1_toolkit_jobs_status_bp = Blueprint('v1_toolkit_jobs_status', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_toolkit_jobs_status_bp.route('/v1/toolkit/jobs/status', methods=['POST'])
-@authenticate
-@queue_task_wrapper(bypass_queue=True)
+# @authenticate # Removed
+@current_app.queue_task(bypass_queue=True) # Changed decorator
 def get_all_jobs_status(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     """
     Get the status of all jobs within a specified time range
     
@@ -86,4 +87,4 @@ def get_all_jobs_status(job_id, data):
         
     except Exception as e:
         logger.error(f"Error retrieving status for jobs: {str(e)}")
-        return {"error": f"Failed to retrieve job statuses: {str(e)}"}, endpoint, 500 
+        return {"error": f"Failed to retrieve job statuses: {str(e)}"}, endpoint, 500

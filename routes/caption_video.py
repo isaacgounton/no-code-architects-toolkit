@@ -17,10 +17,10 @@
 
 
 from flask import Blueprint, current_app
-from app_utils import *
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.caption_video import process_captioning
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 import os
 
@@ -28,7 +28,7 @@ caption_bp = Blueprint('caption', __name__)
 logger = logging.getLogger(__name__)
 
 @caption_bp.route('/caption-video', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -56,8 +56,9 @@ logger = logging.getLogger(__name__)
     ],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def caption_video(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     video_url = data['video_url']
     caption_srt = data.get('srt')
     caption_ass = data.get('ass')

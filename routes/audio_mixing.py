@@ -16,18 +16,18 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.audio_mixing import process_audio_mixing
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 audio_mixing_bp = Blueprint('audio_mixing', __name__)
 logger = logging.getLogger(__name__)
 
 @audio_mixing_bp.route('/audio-mixing', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -42,8 +42,9 @@ logger = logging.getLogger(__name__)
     "required": ["video_url", "audio_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def audio_mixing(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     video_url = data.get('video_url')
     audio_url = data.get('audio_url')
     video_vol = data.get('video_vol', 100)

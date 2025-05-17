@@ -1,48 +1,55 @@
-# Copyright (c) 2025 Stephen G. Pope
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-
-from flask import Flask, request
-from queue import Queue
-from services.webhook import send_webhook
+from flask import Flask, request, jsonify
+from flask_login import LoginManager
+from flask_migrate import Migrate
+from models import db, User, APIKey
+from queue import Queue # Added import
 import threading
 import uuid
 import os
 import time
 from functools import wraps
-from version import BUILD_NUMBER  # Import the BUILD_NUMBER
-from app_utils import log_job_status  # Import the log_job_status function
+from version import BUILD_NUMBER
+from app_utils import log_job_status
+import importlib
+# from services.webhook import send_webhook # Will be imported locally in process_queue
 
 MAX_QUEUE_LENGTH = int(os.environ.get('MAX_QUEUE_LENGTH', 0))
 
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, template_folder='templates')
+    
+    # Configure SQLAlchemy and other settings
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
+    
+    # Initialize extensions
+    db.init_app(app)
+    migrate = Migrate(app, db)
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'web_auth.login'
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+
+    # Create database tables
+    with app.app_context():
+        db.create_all()
 
     # Create a queue to hold tasks
     task_queue = Queue()
-    queue_id = id(task_queue)  # Generate a single queue_id for this worker
+    queue_id = id(task_queue)
 
-    # Function to process tasks from the queue
+    # Queue processing function
     def process_queue():
         while True:
             job_id, data, task_func, queue_start_time = task_queue.get()
             queue_time = time.time() - queue_start_time
             run_start_time = time.time()
-            pid = os.getpid()  # Get the PID of the actual processing thread
+            pid = os.getpid()
             
-            # Log job status as running
             log_job_status(job_id, {
                 "job_status": "running",
                 "job_id": job_id,
@@ -51,27 +58,26 @@ def create_app():
                 "response": None
             })
             
-            response = task_func()
+            response = task_func() # This is where the actual route function is called
             run_time = time.time() - run_start_time
             total_time = time.time() - queue_start_time
 
             response_data = {
-                "endpoint": response[1],
-                "code": response[2],
+                "endpoint": response[1] if isinstance(response, tuple) and len(response) > 1 else "unknown_endpoint", # Safely access endpoint
+                "code": response[2] if isinstance(response, tuple) and len(response) > 2 else 500, # Safely access code
                 "id": data.get("id"),
                 "job_id": job_id,
-                "response": response[0] if response[2] == 200 else None,
-                "message": "success" if response[2] == 200 else response[0],
+                "response": response[0] if isinstance(response, tuple) and len(response) > 0 and response[2] == 200 else None,
+                "message": "success" if isinstance(response, tuple) and len(response) > 2 and response[2] == 200 else (response[0] if isinstance(response, tuple) and len(response) > 0 else "error"),
                 "pid": pid,
                 "queue_id": queue_id,
                 "run_time": round(run_time, 3),
                 "queue_time": round(queue_time, 3),
                 "total_time": round(total_time, 3),
                 "queue_length": task_queue.qsize(),
-                "build_number": BUILD_NUMBER  # Add build number to response
+                "build_number": BUILD_NUMBER
             }
             
-            # Log job status as done
             log_job_status(job_id, {
                 "job_status": "done",
                 "job_id": job_id,
@@ -80,133 +86,99 @@ def create_app():
                 "response": response_data
             })
 
-            # Only send webhook if webhook_url has an actual value (not an empty string)
             if data.get("webhook_url") and data.get("webhook_url") != "":
+                from services.webhook import send_webhook # Import here
                 send_webhook(data.get("webhook_url"), response_data)
 
             task_queue.task_done()
 
-    # Start the queue processing in a separate thread
+    # Start queue processing thread
     threading.Thread(target=process_queue, daemon=True).start()
 
-    # Decorator to add tasks to the queue or bypass it
+    # Queue task decorator
     def queue_task(bypass_queue=False):
         def decorator(f):
-            @wraps(f)  # Add functools.wraps to preserve the original function name
+            @wraps(f)
             def wrapper(*args, **kwargs):
+                # API key verification logic
+                # Exclude web routes and static files from API key check
+                # Check if current endpoint is not for static files and not part of web_auth blueprint
+                if not request.path.startswith('/static') and \
+                   (not request.blueprint or request.blueprint != 'web_auth') and \
+                   request.endpoint != 'static':
+                    
+                    api_key_value = request.headers.get('X-API-Key')
+                    if not api_key_value:
+                            return jsonify({"message": "API key is missing"}), 401
+
+                    api_key_obj = APIKey.query.filter_by(key=api_key_value, revoked=False).first()
+                    
+                    if not api_key_obj or not api_key_obj.is_valid():
+                        return jsonify({"message": "Unauthorized - Invalid or revoked API key"}), 401
+                    
+                    from datetime import datetime
+                    api_key_obj.last_used_at = datetime.utcnow()
+                    db.session.commit()
+
                 job_id = str(uuid.uuid4())
                 data = request.json if request.is_json else {}
-                pid = os.getpid()  # Get PID for non-queued tasks
+                pid = os.getpid()
                 start_time = time.time()
                 
                 if bypass_queue or 'webhook_url' not in data:
-                    
-                    # Log job status as running immediately (bypassing queue)
-                    log_job_status(job_id, {
-                        "job_status": "running",
-                        "job_id": job_id,
-                        "queue_id": queue_id,
-                        "process_id": pid,
-                        "response": None
-                    })
-                    
-                    response = f(job_id=job_id, data=data, *args, **kwargs)  # Pass job_id and data consistently
+                    log_job_status(job_id, {"job_status": "running", "job_id": job_id, "queue_id": queue_id, "process_id": pid, "response": None})
+                    response_tuple = f(job_id=job_id, data=data, *args, **kwargs) # Route function must return a 3-tuple
                     run_time = time.time() - start_time
 
-                    # Handle different response formats
-                    if isinstance(response, tuple) and len(response) == 3:
-                        response_obj = {
-                            "code": response[2],
-                            "id": data.get("id"),
-                            "job_id": job_id,
-                            "response": response[0] if response[2] == 200 else None,
-                            "message": "success" if response[2] == 200 else response[0],
-                            "run_time": round(run_time, 3),
-                            "queue_time": 0,
-                            "total_time": round(run_time, 3),
-                            "pid": pid,
-                            "queue_id": queue_id,
-                            "queue_length": task_queue.qsize(),
-                            "build_number": BUILD_NUMBER
-                        }
-                    else:
-                        # Direct response (not using the standard tuple format)
-                        return response
-                    
-                    # Log job status as done
-                    log_job_status(job_id, {
-                        "job_status": "done",
-                        "job_id": job_id,
-                        "queue_id": queue_id,
-                        "process_id": pid,
-                        "response": response_obj
-                    })
-                    
-                    return response_obj, response[2]
-                else:
+                    response_content, endpoint_name, status_code = response_tuple
+
+                    response_obj = {
+                        "code": status_code, "id": data.get("id"), "job_id": job_id,
+                        "response": response_content if status_code == 200 else None,
+                        "message": "success" if status_code == 200 else response_content,
+                        "run_time": round(run_time, 3), "queue_time": 0, "total_time": round(run_time, 3),
+                        "pid": pid, "queue_id": queue_id, "queue_length": task_queue.qsize(), "build_number": BUILD_NUMBER
+                    }
+                    log_job_status(job_id, {"job_status": "done", "job_id": job_id, "queue_id": queue_id, "process_id": pid, "response": response_obj})
+                    return response_obj, status_code
+                else: # Queued task
                     if MAX_QUEUE_LENGTH > 0 and task_queue.qsize() >= MAX_QUEUE_LENGTH:
                         error_response = {
-                            "code": 429,
-                            "id": data.get("id"),
-                            "job_id": job_id,
+                            "code": 429, "id": data.get("id"), "job_id": job_id,
                             "message": f"MAX_QUEUE_LENGTH ({MAX_QUEUE_LENGTH}) reached",
-                            "pid": pid,
-                            "queue_id": queue_id,
-                            "queue_length": task_queue.qsize(),
-                            "build_number": BUILD_NUMBER  # Add build number to response
+                            "pid": pid, "queue_id": queue_id, "queue_length": task_queue.qsize(), "build_number": BUILD_NUMBER
                         }
-                        
-                        # Log the queue overflow error
-                        log_job_status(job_id, {
-                            "job_status": "done",
-                            "job_id": job_id,
-                            "queue_id": queue_id,
-                            "process_id": pid,
-                            "response": error_response
-                        })
-                        
+                        log_job_status(job_id, {"job_status": "done", "job_id": job_id, "queue_id": queue_id, "process_id": pid, "response": error_response})
                         return error_response, 429
                     
-                    # Log job status as queued
-                    log_job_status(job_id, {
-                        "job_status": "queued",
-                        "job_id": job_id,
-                        "queue_id": queue_id,
-                        "process_id": pid,
-                        "response": None
-                    })
-                    
+                    log_job_status(job_id, {"job_status": "queued", "job_id": job_id, "queue_id": queue_id, "process_id": pid, "response": None})
                     task_queue.put((job_id, data, lambda: f(job_id=job_id, data=data, *args, **kwargs), start_time))
-                    
                     return {
-                        "code": 202,
-                        "id": data.get("id"),
-                        "job_id": job_id,
-                        "message": "processing",
-                        "pid": pid,
-                        "queue_id": queue_id,
-                        "max_queue_length": MAX_QUEUE_LENGTH if MAX_QUEUE_LENGTH > 0 else "unlimited",
-                        "queue_length": task_queue.qsize(),
-                        "build_number": BUILD_NUMBER  # Add build number to response
+                        "code": 202, "id": data.get("id"), "job_id": job_id, "message": "processing",
+                        "pid": pid, "queue_id": queue_id, "max_queue_length": MAX_QUEUE_LENGTH if MAX_QUEUE_LENGTH > 0 else "unlimited",
+                        "queue_length": task_queue.qsize(), "build_number": BUILD_NUMBER
                     }, 202
             return wrapper
         return decorator
 
-    app.queue_task = queue_task
+    app.queue_task = queue_task # Make decorator available on app object
 
-    # Import blueprints
+    # Import and register web interface blueprints
+    from routes.web.auth import web_auth_bp
+    app.register_blueprint(web_auth_bp)
+
+    # Import and register API blueprints
     from routes.media_to_mp3 import convert_bp
     from routes.transcribe_media import transcribe_bp
     from routes.combine_videos import combine_bp
     from routes.audio_mixing import audio_mixing_bp
     from routes.gdrive_upload import gdrive_upload_bp
     from routes.authenticate import auth_bp
-    from routes.caption_video import caption_bp 
+    from routes.caption_video import caption_bp
     from routes.extract_keyframes import extract_keyframes_bp
     from routes.image_to_video import image_to_video_bp
-    
 
-    # Register blueprints
+    # Register API blueprints
     app.register_blueprint(convert_bp)
     app.register_blueprint(transcribe_bp)
     app.register_blueprint(combine_bp)
@@ -216,10 +188,8 @@ def create_app():
     app.register_blueprint(caption_bp)
     app.register_blueprint(extract_keyframes_bp)
     app.register_blueprint(image_to_video_bp)
-    
-    
 
-    # version 1.0
+    # Import and register v1.0 API blueprints
     from routes.v1.ffmpeg.ffmpeg_compose import v1_ffmpeg_compose_bp
     from routes.v1.media.media_transcribe import v1_media_transcribe_bp
     from routes.v1.media.feedback import v1_media_feedback_bp
@@ -231,7 +201,6 @@ def create_app():
     from routes.v1.toolkit.authenticate import v1_toolkit_auth_bp
     from routes.v1.code.execute.execute_python import v1_code_execute_bp
     from routes.v1.s3.upload import v1_s3_upload_bp
-    # Removed upload_file import as it's now part of upload.py
     from routes.v1.video.thumbnail import v1_video_thumbnail_bp
     from routes.v1.media.download import v1_media_download_bp
     from routes.v1.media.convert.media_convert import v1_media_convert_bp
@@ -246,14 +215,10 @@ def create_app():
     from routes.v1.audio.speech import v1_audio_speech_bp
     from routes.v1.media.media_duration import v1_media_duration_bp
 
+    # Register v1.0 API blueprints
     app.register_blueprint(v1_ffmpeg_compose_bp)
     app.register_blueprint(v1_media_transcribe_bp)
     app.register_blueprint(v1_media_feedback_bp)
-    
-    # Register a special route for Next.js root asset paths
-    from routes.v1.media.feedback import create_root_next_routes
-    create_root_next_routes(app)
-    
     app.register_blueprint(v1_media_convert_mp3_bp)
     app.register_blueprint(v1_video_concatenate_bp)
     app.register_blueprint(v1_video_caption_bp)
@@ -275,6 +240,10 @@ def create_app():
     app.register_blueprint(v1_toolkit_jobs_status_bp)
     app.register_blueprint(v1_audio_speech_bp)
     app.register_blueprint(v1_media_duration_bp)
+
+    # Register Next.js root asset paths
+    from routes.v1.media.feedback import create_root_next_routes
+    create_root_next_routes(app)
 
     return app
 

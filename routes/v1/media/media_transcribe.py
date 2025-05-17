@@ -16,19 +16,19 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 import os
 from services.v1.media.media_transcribe import process_transcribe_media
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 v1_media_transcribe_bp = Blueprint('v1_media_transcribe', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_media_transcribe_bp.route('/v1/media/transcribe', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -47,8 +47,9 @@ logger = logging.getLogger(__name__)
     "required": ["media_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def transcribe(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     # Get the validated and type-converted data
     validated_data = getattr(request, '_validated_json', request.json)
     media_url = validated_data['media_url']

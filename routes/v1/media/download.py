@@ -1,5 +1,5 @@
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 import os
 import yt_dlp
@@ -7,7 +7,7 @@ import tempfile
 from werkzeug.utils import secure_filename
 import uuid
 from services.cloud_storage import upload_file
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.file_management import download_file
 from urllib.parse import quote
 
@@ -15,7 +15,7 @@ v1_media_download_bp = Blueprint('v1_media_download', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_media_download_bp.route('/v1/BETA/media/download', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -70,8 +70,9 @@ logger = logging.getLogger(__name__)
     "required": ["media_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def download_media(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     media_url = data['media_url']
 
     format_options = data.get('format', {})
@@ -207,4 +208,4 @@ def download_media(job_id, data):
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during download process - {str(e)}")
-        return str(e), "/v1/media/download", 500 
+        return str(e), "/v1/media/download", 500

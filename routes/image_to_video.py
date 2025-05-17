@@ -16,18 +16,18 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.image_to_video import process_image_to_video
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 image_to_video_bp = Blueprint('image_to_video', __name__)
 logger = logging.getLogger(__name__)
 
 @image_to_video_bp.route('/image-to-video', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -41,8 +41,9 @@ logger = logging.getLogger(__name__)
     "required": ["image_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def image_to_video(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     image_url = data.get('image_url')
     length = data.get('length', 5)
     frame_rate = data.get('frame_rate', 30)

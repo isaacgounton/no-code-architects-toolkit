@@ -17,19 +17,17 @@
 
 
 from flask import Blueprint, request, jsonify, current_app
-from app_utils import *
+# from app_utils import * # queue_task_wrapper will be removed
 from functools import wraps
 import os
 
 auth_bp = Blueprint('auth', __name__)
 
-API_KEY = os.environ.get('API_KEY')
+# API_KEY = os.environ.get('API_KEY') # No longer needed, auth is DB based
 
 @auth_bp.route('/authenticate', methods=['GET'])
-@queue_task_wrapper(bypass_queue=True)
+@current_app.queue_task(bypass_queue=True) # Use the decorator from the app instance
 def authenticate_endpoint(**kwargs):
-    api_key = request.headers.get('X-API-Key')
-    if api_key == API_KEY:
-        return "Authorized", "/authenticate", 200
-    else:
-        return "Unauthorized", "/authenticate", 401
+    # The API key check is now handled by the @current_app.queue_task decorator.
+    # This function will only be called if the API key is valid.
+    return "Authorized", "/authenticate", 200

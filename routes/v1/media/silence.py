@@ -16,17 +16,17 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.v1.media.silence import detect_silence
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 
 v1_media_silence_bp = Blueprint('v1_media_silence', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_media_silence_bp.route('/v1/media/silence', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -42,8 +42,9 @@ logger = logging.getLogger(__name__)
     "required": ["media_url", "duration"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def silence(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     """Detect silence in a media file and return the silence intervals."""
     media_url = data['media_url']
     start_time = data.get('start', None)  # None = start from beginning

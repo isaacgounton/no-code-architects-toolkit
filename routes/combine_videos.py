@@ -16,18 +16,18 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.ffmpeg_toolkit import process_video_combination
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 combine_bp = Blueprint('combine', __name__)
 logger = logging.getLogger(__name__)
 
 @combine_bp.route('/combine-videos', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -48,8 +48,9 @@ logger = logging.getLogger(__name__)
     "required": ["video_urls"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def combine_videos(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     media_urls = data['video_urls']
     webhook_url = data.get('webhook_url')
     id = data.get('id')

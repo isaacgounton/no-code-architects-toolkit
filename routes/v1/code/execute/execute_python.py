@@ -18,9 +18,9 @@
 
 import os
 import logging
-from flask import Blueprint, request
-from services.authentication import authenticate
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, request, current_app # Added current_app
+# from services.authentication import authenticate # Removed
+from app_utils import validate_payload # Removed queue_task_wrapper
 import subprocess
 import tempfile
 import json
@@ -30,7 +30,7 @@ v1_code_execute_bp = Blueprint('v1_code_execute', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_code_execute_bp.route('/v1/code/execute/python', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -42,8 +42,9 @@ logger = logging.getLogger(__name__)
     "required": ["code"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def execute_python(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     logger.info(f"Job {job_id}: Received Python code execution request")
     
     try:

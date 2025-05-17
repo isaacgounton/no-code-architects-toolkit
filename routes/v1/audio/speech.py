@@ -21,10 +21,10 @@
 # Date: May 2025
 # Created new route: /v1/audio/speech
 
-from flask import Blueprint
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Removed queue_task_wrapper
 import logging
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 from services.v1.audio.speech import generate_tts, list_voices
 import os
@@ -33,9 +33,10 @@ v1_audio_speech_bp = Blueprint("v1_audio_speech", __name__)
 logger = logging.getLogger(__name__)
 
 @v1_audio_speech_bp.route("/v1/audio/speech/voices", methods=["GET"])
-@queue_task_wrapper(bypass_queue=True)  # This decorator should be innermost
-@authenticate
-def get_voices():
+@current_app.queue_task(bypass_queue=True) # Changed decorator
+# @authenticate # Removed
+def get_voices(**kwargs): # Added **kwargs to accept job_id, data from decorator
+    # The API key check is now handled by the @current_app.queue_task decorator
     """List available voices for text-to-speech"""
     try:
         voices = list_voices()
@@ -46,7 +47,7 @@ def get_voices():
         return str(e), "/v1/audio/speech/voices", 500
 
 @v1_audio_speech_bp.route("/v1/audio/speech", methods=["POST"])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -62,8 +63,9 @@ def get_voices():
     "required": ["text"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def text_to_speech(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     tts = data.get("tts", "edge-tts")
     text = data["text"]
     voice = data.get("voice")

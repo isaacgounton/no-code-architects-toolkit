@@ -18,10 +18,10 @@
 
 # routes/media_to_mp3.py
 from flask import Blueprint, current_app
-from app_utils import *
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.ffmpeg_toolkit import process_conversion
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 import os
 
@@ -29,7 +29,7 @@ convert_bp = Blueprint('convert', __name__)
 logger = logging.getLogger(__name__)
 
 @convert_bp.route('/media-to-mp3', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -41,8 +41,9 @@ logger = logging.getLogger(__name__)
     "required": ["media_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def convert_media_to_mp3(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     media_url = data['media_url']
     webhook_url = data.get('webhook_url')
     id = data.get('id')

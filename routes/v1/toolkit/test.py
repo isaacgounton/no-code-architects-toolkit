@@ -18,19 +18,20 @@
 
 import os
 import logging
-from flask import Blueprint
-from services.authentication import authenticate
+from flask import Blueprint, current_app # Added current_app
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
-from app_utils import queue_task_wrapper
+# from app_utils import queue_task_wrapper # Removed
 from config import LOCAL_STORAGE_PATH
 
 v1_toolkit_test_bp = Blueprint('v1_toolkit_test', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_toolkit_test_bp.route('/v1/toolkit/test', methods=['GET'])
-@authenticate
-@queue_task_wrapper(bypass_queue=True)
+# @authenticate # Removed
+@current_app.queue_task(bypass_queue=True) # Changed decorator
 def test_api(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     logger.info(f"Job {job_id}: Testing NCA Toolkit API setup")
     
     try:

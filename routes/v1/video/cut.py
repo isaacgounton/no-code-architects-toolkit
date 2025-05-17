@@ -16,22 +16,22 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
-from services.v1.video.cut import cut_media
-from services.authentication import authenticate
+from services.v1.video.cut import cut_video
+# from services.authentication import authenticate # Removed
 
 v1_video_cut_bp = Blueprint('v1_video_cut', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_video_cut_bp.route('/v1/video/cut', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
         "video_url": {"type": "string", "format": "uri"},
-        "cuts": {
+        "segments": {
             "type": "array",
             "items": {
                 "type": "object",
@@ -52,12 +52,13 @@ logger = logging.getLogger(__name__)
         "webhook_url": {"type": "string", "format": "uri"},
         "id": {"type": "string"}
     },
-    "required": ["video_url", "cuts"],
+    "required": ["video_url", "segments"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def video_cut(job_id, data):
-    """Cut specified segments from a video file with optional encoding settings."""
+    # The API key check is now handled by the @current_app.queue_task decorator
+    """Cut a video file into segments with optional encoding settings."""
     video_url = data['video_url']
     cuts = data['cuts']
     

@@ -14,9 +14,9 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from flask import Blueprint, request, jsonify
-from services.authentication import authenticate
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, request, jsonify, current_app # Added current_app
+# from services.authentication import authenticate # Removed
+# from app_utils import validate_payload, queue_task_wrapper # queue_task_wrapper removed, validate_payload not used
 from services.v1.s3.upload import stream_upload_to_s3
 import os
 import json
@@ -26,9 +26,10 @@ logger = logging.getLogger(__name__)
 v1_s3_upload_bp = Blueprint('v1_s3_upload', __name__)
 
 @v1_s3_upload_bp.route('/v1/s3/upload', methods=['POST'])
-@authenticate
-@queue_task_wrapper(bypass_queue=False)
+# @authenticate # Removed
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def s3_upload_endpoint(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     try:
         # Check if a file was uploaded
         if 'file' in request.files:

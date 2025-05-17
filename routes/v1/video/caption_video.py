@@ -16,11 +16,11 @@
 
 
 
-from flask import Blueprint, jsonify
-from app_utils import validate_payload, queue_task_wrapper
+from flask import Blueprint, jsonify, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload
 import logging
 from services.v1.video.caption_video import process_captioning_v1
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 import os
 import requests  # Ensure requests is imported for webhook handling
@@ -29,7 +29,7 @@ v1_video_caption_bp = Blueprint('v1_video/caption', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_video_caption_bp.route('/v1/video/caption', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -92,8 +92,9 @@ logger = logging.getLogger(__name__)
     "required": ["video_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def caption_video_v1(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     video_url = data['video_url']
     captions = data.get('captions')
     settings = data.get('settings', {})

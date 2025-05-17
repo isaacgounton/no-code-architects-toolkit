@@ -18,17 +18,17 @@
 
 import os
 import logging
-from flask import Blueprint, request, jsonify
-from app_utils import *
+from flask import Blueprint, request, jsonify, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 from services.v1.ffmpeg.ffmpeg_compose import process_ffmpeg_compose
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 v1_ffmpeg_compose_bp = Blueprint('v1_ffmpeg_compose', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_ffmpeg_compose_bp.route('/v1/ffmpeg/compose', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -112,8 +112,9 @@ logger = logging.getLogger(__name__)
     "required": ["inputs", "outputs"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def ffmpeg_api(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     logger.info(f"Job {job_id}: Received flexible FFmpeg request")
 
     try:

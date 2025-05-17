@@ -18,7 +18,7 @@
 
 import os
 import logging
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app # Added current_app
 import threading
 import requests
 import uuid
@@ -28,8 +28,8 @@ from google.auth.transport.requests import Request
 from datetime import datetime
 import time
 import psutil
-from services.authentication import authenticate
-from app_utils import validate_payload, queue_task_wrapper
+# from services.authentication import authenticate # Removed
+from app_utils import validate_payload # Removed queue_task_wrapper
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -160,7 +160,7 @@ def upload_file_in_chunks(file_url, upload_url, total_size, job_id, chunk_size):
                 active_uploads.remove(progress)
 
 @gdrive_upload_bp.route('/gdrive-upload', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -175,8 +175,9 @@ def upload_file_in_chunks(file_url, upload_url, total_size, job_id, chunk_size):
     "required": ["file_url", "filename", "folder_id"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def gdrive_upload(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     logger.info(f"Processing Job ID: {job_id}")
 
     if not GDRIVE_USER:

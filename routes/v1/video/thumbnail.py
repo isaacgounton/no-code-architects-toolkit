@@ -16,18 +16,18 @@
 
 
 
-from flask import Blueprint, jsonify
-from app_utils import *
+from flask import Blueprint, jsonify, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.v1.video.thumbnail import extract_thumbnail
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 from services.cloud_storage import upload_file
 
 v1_video_thumbnail_bp = Blueprint('v1_video_thumbnail', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_video_thumbnail_bp.route('/v1/video/thumbnail', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -39,8 +39,9 @@ logger = logging.getLogger(__name__)
     "required": ["video_url"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def generate_thumbnail(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     video_url = data.get('video_url')
     second = data.get('second', 0)  # Default to 0 if not provided
     webhook_url = data.get('webhook_url')

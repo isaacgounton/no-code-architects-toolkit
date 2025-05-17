@@ -16,17 +16,17 @@
 
 
 
-from flask import Blueprint
-from app_utils import *
+from flask import Blueprint, current_app # Added current_app
+from app_utils import validate_payload # Keep validate_payload, remove *
 import logging
 from services.v1.video.split import split_video
-from services.authentication import authenticate
+# from services.authentication import authenticate # Removed
 
 v1_video_split_bp = Blueprint('v1_video_split', __name__)
 logger = logging.getLogger(__name__)
 
 @v1_video_split_bp.route('/v1/video/split', methods=['POST'])
-@authenticate
+# @authenticate # Removed
 @validate_payload({
     "type": "object",
     "properties": {
@@ -55,8 +55,9 @@ logger = logging.getLogger(__name__)
     "required": ["video_url", "splits"],
     "additionalProperties": False
 })
-@queue_task_wrapper(bypass_queue=False)
+@current_app.queue_task(bypass_queue=False) # Changed decorator
 def video_split(job_id, data):
+    # The API key check is now handled by the @current_app.queue_task decorator
     """Split a video file into multiple segments with optional encoding settings."""
     video_url = data['video_url']
     splits = data['splits']

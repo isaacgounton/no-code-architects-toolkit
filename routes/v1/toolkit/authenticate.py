@@ -17,19 +17,20 @@
 
 
 from flask import Blueprint, request, jsonify, current_app
-from app_utils import *
+# from app_utils import * # Assuming queue_task_wrapper is no longer needed
 from functools import wraps
+from models import APIKey # APIKey model might still be needed if other auth logic exists, or can be removed if app.queue_task handles all
 import os
 
 v1_toolkit_auth_bp = Blueprint('v1_toolkit_auth', __name__)
 
-API_KEY = os.environ.get('API_KEY')
 
 @v1_toolkit_auth_bp.route('/v1/toolkit/authenticate', methods=['GET'])
-@queue_task_wrapper(bypass_queue=True)
+@current_app.queue_task(bypass_queue=True) # Use the decorator from the app instance
 def authenticate_endpoint(**kwargs):
-    api_key = request.headers.get('X-API-Key')
-    if api_key == API_KEY:
-        return "Authorized", "/authenticate", 200
-    else:
-        return "Unauthorized", "/authenticate", 401
+    # The API key check is now handled by the @current_app.queue_task decorator
+    # This endpoint can now assume authentication was successful if it's reached.
+    # The decorator in app.py will return 401 if auth fails.
+    # If the key is valid, the decorator in app.py updates last_used_at.
+    # This function will only be called if the API key is valid.
+    return "Authorized", "/v1/toolkit/authenticate", 200

@@ -73,10 +73,10 @@ def log_job_status(job_id, data):
     with open(job_file, 'w') as f:
         json.dump(data, f, indent=2)
 
-def queue_task_wrapper(bypass_queue=False):
-    def decorator(f):
-        @wraps(f)  # Add functools.wraps to preserve the original function name
-        def wrapper(*args, **kwargs):
-            return current_app.queue_task(bypass_queue=bypass_queue)(f)(*args, **kwargs)
-        return wrapper
-    return decorator
+# def queue_task_wrapper(bypass_queue=False): # Removed as all routes now use current_app.queue_task
+#     def decorator(f):
+#         @wraps(f)
+#         def wrapper(*args, **kwargs):
+#             return current_app.queue_task(bypass_queue=bypass_queue)(f)(*args, **kwargs)
+#         return wrapper
+#     return decorator
