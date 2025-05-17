@@ -17,7 +17,7 @@ google-api-python-client
 google-cloud-storage
 psutil
 boto3
-Pillow
+Pillow==9.5.0
 matplotlib
 yt-dlp
 edge-tts

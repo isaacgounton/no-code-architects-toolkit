@@ -55,15 +55,19 @@ def initialize_gcp_client():
 # Initialize the GCS client
 gcs_client = initialize_gcp_client()
 
-def upload_to_gcs(file_path, bucket_name=GCP_BUCKET_NAME):
+def upload_to_gcs(file_path, bucket_name=GCP_BUCKET_NAME, content_type=None): # Added content_type parameter
     if not gcs_client:
         raise ValueError("GCS client is not initialized. Skipping file upload.")
 
     try:
-        logger.info(f"Uploading file to Google Cloud Storage: {file_path}")
+        if content_type:
+            logger.info(f"Uploading file to Google Cloud Storage: {file_path} with Content-Type: {content_type}")
+        else:
+            logger.info(f"Uploading file to Google Cloud Storage: {file_path} (Content-Type not specified)")
+            
         bucket = gcs_client.bucket(bucket_name)
         blob = bucket.blob(os.path.basename(file_path))
-        blob.upload_from_filename(file_path)
+        blob.upload_from_filename(file_path, content_type=content_type) # Pass content_type to upload_from_filename
         logger.info(f"File uploaded successfully to GCS: {blob.public_url}")
         return blob.public_url
     except Exception as e:

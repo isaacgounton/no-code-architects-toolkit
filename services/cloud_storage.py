@@ -18,6 +18,7 @@
 
 import os
 import logging
+import mimetypes # Added import
 from abc import ABC, abstractmethod
 from services.gcp_toolkit import upload_to_gcs
 from services.s3_toolkit import upload_to_s3
@@ -40,15 +41,15 @@ def parse_s3_url(s3_url):
 
 class CloudStorageProvider(ABC):
     @abstractmethod
-    def upload_file(self, file_path: str) -> str:
+    def upload_file(self, file_path: str, content_type: str = None) -> str: # Added content_type
         pass
 
 class GCPStorageProvider(CloudStorageProvider):
     def __init__(self):
         self.bucket_name = os.getenv('GCP_BUCKET_NAME')
 
-    def upload_file(self, file_path: str) -> str:
-        return upload_to_gcs(file_path, self.bucket_name)
+    def upload_file(self, file_path: str, content_type: str = None) -> str: # Added content_type
+        return upload_to_gcs(file_path, self.bucket_name, content_type=content_type) # Pass content_type
 
 class S3CompatibleProvider(CloudStorageProvider):
     def __init__(self):
@@ -83,8 +84,8 @@ class S3CompatibleProvider(CloudStorageProvider):
             except Exception as e:
                 logger.warning(f"Failed to parse Digital Ocean URL: {e}. Using provided values.")
 
-    def upload_file(self, file_path: str) -> str:
-        return upload_to_s3(file_path, self.endpoint_url, self.access_key, self.secret_key, self.bucket_name, self.region)
+    def upload_file(self, file_path: str, content_type: str = None) -> str: # Added content_type
+        return upload_to_s3(file_path, self.endpoint_url, self.access_key, self.secret_key, self.bucket_name, self.region, content_type=content_type) # Pass content_type
 
 def get_storage_provider() -> CloudStorageProvider:
     
@@ -108,11 +109,15 @@ def get_storage_provider() -> CloudStorageProvider:
 def upload_file(file_path: str) -> str:
     provider = get_storage_provider()
     try:
-        logger.info(f"Uploading file to cloud storage: {file_path}")
-        url = provider.upload_file(file_path)
+        # Guess MIME type
+        content_type, _ = mimetypes.guess_type(file_path)
+        if content_type is None:
+            content_type = 'application/octet-stream' # Default if guess fails
+        
+        logger.info(f"Uploading file to cloud storage: {file_path} with Content-Type: {content_type}")
+        url = provider.upload_file(file_path, content_type=content_type)
         logger.info(f"File uploaded successfully: {url}")
         return url
     except Exception as e:
         logger.error(f"Error uploading file to cloud storage: {e}")
         raise
-    
