@@ -36,6 +36,22 @@ import kokoro_onnx
 import wget
 from datetime import datetime
 
+def download_nltk_resource(resource, max_retries=3):
+    """Download an NLTK resource with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                print(f"Retrying download of {resource} (attempt {attempt + 1})")
+            nltk.download(resource, quiet=True)
+            # Verify the download worked by trying to load it
+            nltk.data.find(f'{resource}.pickle')
+            return True
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Warning: Failed to download NLTK {resource} after {max_retries} attempts: {str(e)}")
+            continue
+    return False
+
 def ensure_nltk_data():
     """Ensure required NLTK resources are available"""
     required_resources = {
@@ -47,15 +63,16 @@ def ensure_nltk_data():
     
     for resource, subpath in required_resources.items():
         resource_path = os.path.join(nltk_dir, subpath)
-        if not os.path.exists(resource_path):
+        if not os.path.exists(resource_path) or resource == 'averaged_perceptron_tagger':  # Always redownload tagger due to CRC issues
             try:
                 # Ensure the parent directory exists
                 os.makedirs(os.path.dirname(resource_path), exist_ok=True)
-                # Download the resource quietly
-                nltk.download(resource, quiet=True)
+                
+                # Try to download with retries
+                if not download_nltk_resource(resource):
+                    print(f"Warning: Could not download NLTK {resource}, will attempt to use system-wide installation")
             except Exception as e:
-                print(f"Warning: Could not download NLTK {resource}: {str(e)}")
-                # Continue anyway - data might be available system-wide
+                print(f"Warning: Error setting up NLTK {resource}: {str(e)}")
 
 # Initialize NLTK data on module load
 ensure_nltk_data()
