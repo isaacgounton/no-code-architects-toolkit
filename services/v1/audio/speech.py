@@ -29,11 +29,17 @@ import asyncio
 import edge_tts
 import re
 import json
+import nltk
 from config import LOCAL_STORAGE_PATH
 from time import sleep
 import kokoro_onnx
 import wget
 from datetime import datetime
+
+try:
+    nltk.download('punkt')
+except Exception as e:
+    print(f"Warning: Could not download NLTK punkt: {str(e)}")
 
 # Download kokoro model files if they don't exist
 MODEL_PATH = os.path.join(LOCAL_STORAGE_PATH, 'kokoro-v1.0.onnx')
@@ -341,7 +347,9 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
         # Since Kokoro ONNX doesn't provide timestamps, we estimate basic timing
         # by dividing total duration by word count for basic subtitle support
         try:
-            words = text.split()
+            import warnings
+            warnings.filterwarnings('ignore', category=UserWarning, module='phonemizer')
+            words = nltk.word_tokenize(text)
             duration = len(samples) / sr  # Duration in seconds
             word_duration = duration / len(words)
             
@@ -503,8 +511,19 @@ def generate_tts(tts: str, text: str, voice: str, job_id: str,
                     f.write("WEBVTT\n\n")
                     for i, phrase in enumerate(phrases, 1):
                         # Convert times to VTT format (HH:MM:SS.mmm)
-                        start_str = datetime.utcfromtimestamp(phrase['start']).strftime('%H:%M:%S.%f')[:-3]
-                        end_str = datetime.utcfromtimestamp(phrase['end']).strftime('%H:%M:%S.%f')[:-3]
+                        # Convert seconds to timestamp (WebVTT format)
+                        start_hrs = int(phrase['start'] // 3600)
+                        start_mins = int((phrase['start'] % 3600) // 60)
+                        start_secs = int(phrase['start'] % 60)
+                        start_ms = int((phrase['start'] % 1) * 1000)
+                        
+                        end_hrs = int(phrase['end'] // 3600)
+                        end_mins = int((phrase['end'] % 3600) // 60)
+                        end_secs = int(phrase['end'] % 60)
+                        end_ms = int((phrase['end'] % 1) * 1000)
+                        
+                        start_str = f"{start_hrs:02d}:{start_mins:02d}:{start_secs:02d}.{start_ms:03d}"
+                        end_str = f"{end_hrs:02d}:{end_mins:02d}:{end_secs:02d}.{end_ms:03d}"
                         
                         f.write(f"{i}\n")
                         f.write(f"{start_str} --> {end_str}\n")
@@ -515,8 +534,18 @@ def generate_tts(tts: str, text: str, voice: str, job_id: str,
                 with open(subtitle_file, 'w', encoding='utf-8') as f:
                     for i, phrase in enumerate(phrases, 1):
                         # Convert times to SRT format (HH:MM:SS,mmm)
-                        start_str = datetime.utcfromtimestamp(phrase['start']).strftime('%H:%M:%S,%f')[:-3]
-                        end_str = datetime.utcfromtimestamp(phrase['end']).strftime('%H:%M:%S,%f')[:-3]
+                        start_hrs = int(phrase['start'] // 3600)
+                        start_mins = int((phrase['start'] % 3600) // 60)
+                        start_secs = int(phrase['start'] % 60)
+                        start_ms = int((phrase['start'] % 1) * 1000)
+                        
+                        end_hrs = int(phrase['end'] // 3600)
+                        end_mins = int((phrase['end'] % 3600) // 60)
+                        end_secs = int(phrase['end'] % 60)
+                        end_ms = int((phrase['end'] % 1) * 1000)
+                        
+                        start_str = f"{start_hrs:02d}:{start_mins:02d}:{start_secs:02d},{start_ms:03d}"
+                        end_str = f"{end_hrs:02d}:{end_mins:02d}:{end_secs:02d},{end_ms:03d}"
                         
                         f.write(f"{i}\n")
                         f.write(f"{start_str} --> {end_str}\n")
