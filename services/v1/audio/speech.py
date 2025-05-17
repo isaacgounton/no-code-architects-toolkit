@@ -37,21 +37,27 @@ import wget
 from datetime import datetime
 
 def ensure_nltk_data():
-    """Ensure NLTK data is available, downloading if needed"""
-    import os
-    nltk_dir = os.path.expanduser('~/nltk_data')
-    punkt_path = os.path.join(nltk_dir, 'tokenizers', 'punkt')
+    """Ensure required NLTK resources are available"""
+    required_resources = {
+        'punkt': 'tokenizers/punkt',
+        'averaged_perceptron_tagger': 'taggers/averaged_perceptron_tagger'
+    }
     
-    # Only attempt download if data directory doesn't exist
-    if not os.path.exists(punkt_path):
-        try:
-            os.makedirs(os.path.dirname(punkt_path), exist_ok=True)
-            nltk.download('punkt', quiet=True)
-        except Exception as e:
-            print(f"Warning: Could not download NLTK punkt: {str(e)}")
-            # Continue anyway - data might already be available system-wide
+    nltk_dir = os.path.expanduser('~/nltk_data')
+    
+    for resource, subpath in required_resources.items():
+        resource_path = os.path.join(nltk_dir, subpath)
+        if not os.path.exists(resource_path):
+            try:
+                # Ensure the parent directory exists
+                os.makedirs(os.path.dirname(resource_path), exist_ok=True)
+                # Download the resource quietly
+                nltk.download(resource, quiet=True)
+            except Exception as e:
+                print(f"Warning: Could not download NLTK {resource}: {str(e)}")
+                # Continue anyway - data might be available system-wide
 
-# Initialize NLTK data
+# Initialize NLTK data on module load
 ensure_nltk_data()
 
 # Download kokoro model files if they don't exist
