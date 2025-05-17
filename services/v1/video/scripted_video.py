@@ -150,25 +150,89 @@ async def fetch_from_pixabay(query: str, media_type: str = "video") -> List[Dict
         logger.error(f"Pixabay fetch error: {str(e)}")
         return []
 
-# Track used videos to prevent repetition
+import functools
+from typing import Dict, Optional, Tuple
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+
+# Global state
 used_videos = set()
+video_clip_cache: Dict[str, Tuple[VideoFileClip, int]] = {}  # path -> (clip, ref_count)
+max_retries = 3
+retry_delay = 1  # seconds
+
+def get_cached_clip(path: str) -> Optional[VideoFileClip]:
+    """Get a cached video clip if available"""
+    if path in video_clip_cache:
+        clip, ref_count = video_clip_cache[path]
+        video_clip_cache[path] = (clip, ref_count + 1)
+        return clip
+    return None
+
+def cache_clip(path: str, clip: VideoFileClip):
+    """Cache a video clip"""
+    video_clip_cache[path] = (clip, 1)
+
+def release_clip(path: str):
+    """Release a cached clip when no longer needed"""
+    if path in video_clip_cache:
+        clip, ref_count = video_clip_cache[path]
+        if ref_count <= 1:
+            clip.close()
+            del video_clip_cache[path]
+        else:
+            video_clip_cache[path] = (clip, ref_count - 1)
+
+def validate_video_file(file_path: str) -> bool:
+    """Validate video file can be opened and has valid duration"""
+    try:
+        clip = VideoFileClip(file_path)
+        is_valid = hasattr(clip, 'duration') and clip.duration is not None and clip.duration > 0
+        clip.close()
+        return is_valid
+    except Exception as e:
+        logger.error(f"Video file validation failed for {file_path}: {str(e)}")
+        return False
+
+async def with_retries(func, *args, retries=max_retries, delay=retry_delay):
+    """Retry a function with exponential backoff"""
+    last_error = None
+    func_name = getattr(func, '__name__', str(func))
+    logger.info(f"Starting retry wrapper for {func_name} with {retries} max retries")
+    
+    for attempt in range(retries):
+        try:
+            result = await func(*args)
+            if attempt > 0:
+                logger.info(f"Successfully completed {func_name} after {attempt + 1} attempts")
+            return result
+        except Exception as e:
+            last_error = e
+            if attempt < retries - 1:
+                wait_time = delay * (2 ** attempt)
+                logger.warning(f"Retry attempt {attempt + 1} for {func_name} after error: {str(e)}. Waiting {wait_time}s...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"All {retries} retries failed for {func_name}: {str(e)}")
+                raise last_error
 
 async def fetch_stock_media(query: str, media_type: str = "video", custom_url: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Fetch stock media with fallback options and custom URL support
+    Fetch stock media with fallback options, retries, and custom URL support
     """
     global used_videos
-    
+
     if custom_url:
-        # Custom URLs can be reused if needed
+        # Custom URLs bypass retry mechanism
         return [{
             "video_files" if media_type == "video" else "photos": [{
                 "link": custom_url
             }]
         }]
     
-    # Try Pexels first
-    results = await fetch_from_pexels(query, media_type)
+    # Try Pexels first with retries
+    results = await with_retries(fetch_from_pexels, query, media_type)
     
     # Filter out already used videos and try to find a new one
     if results:
@@ -422,17 +486,12 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
                                 pass
                         raise RuntimeError(f"Failed to create video clip: {str(e)}")
                 
-                # Concatenate with crossfade transitions
+                # Import required transition
                 try:
-                    # Create a proper transition function
-                    def transition(t):
-                        return min(1, 2*t) * min(1, 2*(1-t))
-                    transition.duration = 1  # Add duration attribute
-
+                    # Simple concatenation without transitions
                     final_video = concatenate_videoclips(
                         video_clips,
-                        method="compose",
-                        transition=transition
+                        method="chain"  # Use simpler chain method instead of compose
                     )
                 except Exception as e:
                     raise RuntimeError(f"Failed to concatenate video clips: {str(e)}")
@@ -509,17 +568,16 @@ def concatenate_videos(video_paths: List[str], output_path: str) -> str:
         
         final_video = None
         try:
-            # Concatenate with crossfade transitions
-            # Create a proper transition function
-            def transition(t):
-                return min(1, 2*t) * min(1, 2*(1-t))
-            transition.duration = 1  # Add duration attribute
-                
+            logger.info(f"Concatenating {len(clips)} clips with chain method")
+            for i, clip in enumerate(clips):
+                logger.info(f"Clip {i}: duration={clip.duration}, size={clip.size}")
+
+            # Simple concatenation without transitions
             final_video = concatenate_videoclips(
                 clips,
-                method="compose",
-                transition=transition
+                method="chain"  # Use simpler chain method instead of compose
             )
+            logger.info(f"Concatenation successful. Final duration: {final_video.duration}")
 
             if not hasattr(final_video, 'duration') or final_video.duration is None:
                 raise ValueError("Concatenated video has invalid duration")
@@ -608,18 +666,27 @@ async def process_scene(
             raise Exception(f"No video source available for scene {scene_num}")
     
     raw_video_path = os.path.join(scene_dir, "raw_video.mp4")
-    # Always download if it's not the local default placeholder
+    logger.info(f"Downloading/preparing video for scene {scene_num}")
     
+    # Always download if it's not the local default placeholder
     if video_url != DEFAULT_PLACEHOLDER_VIDEO and video_url != os.path.abspath(DEFAULT_PLACEHOLDER_VIDEO):
         await download_media(video_url, raw_video_path)
     else:
         # Copy local placeholder video
         import shutil
         shutil.copy2(DEFAULT_PLACEHOLDER_VIDEO, raw_video_path)
+
+    # Validate downloaded/copied video
+    if not validate_video_file(raw_video_path):
+        raise ValueError(f"Invalid or corrupted video file after download/copy for scene {scene_num}")
     
     # Crop video to aspect ratio
     cropped_video_path = os.path.join(scene_dir, "cropped_video.mp4")
     crop_video_to_aspect_ratio(raw_video_path, aspect_ratio, cropped_video_path)
+    
+    # Validate cropped video
+    if not validate_video_file(cropped_video_path):
+        raise ValueError(f"Invalid or corrupted video file after cropping for scene {scene_num}")
     
     # Get video duration
     video_duration = get_media_duration(cropped_video_path)
@@ -671,35 +738,43 @@ def process_scripted_video_v1(
         if not scenes:
             raise Exception("No valid scenes found in script")
         
-        # Process each scene asynchronously
-        scene_paths = []
+        # Process scenes in parallel with a semaphore to control concurrency
+        async def process_all_scenes():
+            # Limit concurrent scene processing to avoid memory issues
+            semaphore = asyncio.Semaphore(3)  # Process up to 3 scenes at once
+            
+            # Create mapping of scene indices to custom URLs if provided
+            custom_urls = {}
+            if custom_media:
+                custom_urls = {item['scene_index']: item['media_url'] 
+                             for item in custom_media if 'scene_index' in item and 'media_url' in item}
+
+            async def process_scene_with_retries(scene, index):
+                # Use semaphore to limit concurrent processing
+                async with semaphore:
+                    return await with_retries(
+                        process_scene,
+                        scene=scene,
+                        tts=tts,
+                        voice=voice,
+                        aspect_ratio=aspect_ratio,
+                        job_id=job_id,
+                        scene_num=index,
+                        custom_url=custom_urls.get(index),
+                        use_placeholder=use_placeholder,
+                        placeholder_url=placeholder_url
+                    )
+
+            # Process all scenes concurrently
+            tasks = [process_scene_with_retries(scene, i) for i, scene in enumerate(scenes)]
+            scene_paths = await asyncio.gather(*tasks)
+            
+            return scene_paths
+
+        # Run the parallel processing
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
-        # Create mapping of scene indices to custom URLs if provided
-        custom_urls = {}
-        if custom_media:
-            custom_urls = {item['scene_index']: item['media_url'] 
-                         for item in custom_media if 'scene_index' in item and 'media_url' in item}
-        
-        for i, scene in enumerate(scenes):
-            # Get custom URL for this scene if available
-            custom_url = custom_urls.get(i)
-            
-            scene_path = loop.run_until_complete(
-                process_scene(
-                    scene=scene,
-                    tts=tts,
-                    voice=voice,
-                    aspect_ratio=aspect_ratio,
-                    job_id=job_id,
-                    scene_num=i,
-                    custom_url=custom_url,
-                    use_placeholder=use_placeholder,
-                    placeholder_url=placeholder_url
-                )
-            )
-            scene_paths.append(scene_path)
+        scene_paths = loop.run_until_complete(process_all_scenes())
         
         # Combine all scenes
         final_path = os.path.join(job_dir, "final_video.mp4")
