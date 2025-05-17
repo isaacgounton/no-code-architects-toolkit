@@ -166,17 +166,21 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt jsonschema
 
-# Download required NLTK data
-RUN python -m nltk.downloader punkt averaged_perceptron_tagger stopwords
-
 # Create the appuser 
 RUN useradd -m appuser 
 
 # Give appuser ownership of the /app directory (including whisper_cache)
-RUN chown appuser:appuser /app 
+RUN chown appuser:appuser /app
 
-# Important: Switch to the appuser before downloading the model
+# Create NLTK data directory
+RUN mkdir -p /usr/local/share/nltk_data && \
+    chown -R appuser:appuser /usr/local/share/nltk_data
+
+# Important: Switch to the appuser before downloading models
 USER appuser
+
+# Download required NLTK data
+RUN python -m nltk.downloader -d /usr/local/share/nltk_data punkt averaged_perceptron_tagger stopwords
 
 RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model('base')"
 
