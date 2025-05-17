@@ -166,6 +166,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt jsonschema
 
+# Download required NLTK data
+RUN python -m nltk.downloader punkt averaged_perceptron_tagger stopwords
+
 # Create the appuser 
 RUN useradd -m appuser 
 

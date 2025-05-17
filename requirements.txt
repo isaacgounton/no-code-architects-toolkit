@@ -2,6 +2,7 @@ Flask
 Werkzeug
 requests
 moviepy==1.0.3
+nltk==3.8.1
 openai-whisper
 gunicorn
 APScheduler
