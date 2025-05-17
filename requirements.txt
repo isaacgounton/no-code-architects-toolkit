@@ -25,3 +25,4 @@ kokoro-onnx==0.4.7
 soundfile
 wget
 jsonschema>=4.17.3
+ffmpeg-python>=0.2.0
