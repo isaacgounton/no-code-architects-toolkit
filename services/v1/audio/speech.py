@@ -310,8 +310,7 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
         # Create options dictionary for kokoro.create()
         options = {
             'voice': voice,
-            'lang': 'en-us',
-            'return_timestamps': True
+            'lang': 'en-us'
         }
 
         # Add speed if specified (default is 1.0)
@@ -323,8 +322,10 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
             except (ValueError, TypeError):
                 pass  # Invalid speed value, use default
 
-        # Generate audio (returns numpy array, sample rate, and word timestamps)
-        samples, sr, timestamps = kokoro.create(text, **options)
+        # Generate audio (returns numpy array and sample rate)
+        # Note: Kokoro ONNX doesn't support word-level timestamps yet
+        samples, sr = kokoro.create(text, **options)
+        timestamps = None
         # Prepare output paths
         output_filename = f"{job_id}.wav"
         wav_output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
@@ -337,11 +338,31 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
         import soundfile as sf
         sf.write(wav_output_path, samples, sr)
 
-        # Save timestamps if available
-        if timestamps:
+        # Since Kokoro ONNX doesn't provide timestamps, we estimate basic timing
+        # by dividing total duration by word count for basic subtitle support
+        try:
+            words = text.split()
+            duration = len(samples) / sr  # Duration in seconds
+            word_duration = duration / len(words)
+            
+            # Create estimated timestamps
+            timestamps = []
+            current_time = 0
+            for word in words:
+                timestamps.append({
+                    'word': word,
+                    'start': current_time,
+                    'end': current_time + word_duration
+                })
+                current_time += word_duration
+                
+            # Save estimated timestamps
             with open(timestamps_path, 'w') as f:
                 json.dump(timestamps, f)
             timestamps_file = timestamps_path
+        except Exception as e:
+            print(f"Error generating estimated timestamps: {str(e)}")
+            timestamps_file = None
         
         return wav_output_path, timestamps_file
 
