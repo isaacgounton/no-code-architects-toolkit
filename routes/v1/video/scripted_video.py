@@ -31,9 +31,13 @@ logger = logging.getLogger(__name__)
     "type": "object",
     "properties": {
         "script": {"type": "string"},
-        "voice": {
+        "tts": {
             "type": "string",
-            "default": "en-US-AriaNeural"
+            "enum": ["edge-tts", "streamlabs-polly", "kokoro"],
+            "default": "edge-tts"
+        },
+        "voice": {
+            "type": "string"
         },
         "aspect_ratio": {
             "type": "string",
@@ -88,7 +92,8 @@ def scripted_video_v1(job_id, data):
     Generate a video from a script with voice synthesis and optional captions.
     """
     script = data['script']
-    voice = data.get('voice', 'en-US-AriaNeural')
+    tts = data.get('tts', 'edge-tts')
+    voice = data.get('voice')
     aspect_ratio = data.get('aspect_ratio', '16:9')
     add_captions = data.get('add_captions', False)
     caption_settings = data.get('caption_settings', {})
@@ -115,6 +120,7 @@ def scripted_video_v1(job_id, data):
         # Process video with all components
         output = process_scripted_video_v1(
             script=script,
+            tts=tts,
             voice=voice,
             aspect_ratio=aspect_ratio,
             add_captions=add_captions,

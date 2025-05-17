@@ -15,15 +15,15 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 import os
-import ffmpeg
 import logging
-import edge_tts
 import asyncio
 import json
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
 import re
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
+from services.v1.audio.speech import TTS_HANDLERS
 from typing import List, Dict, Any, Optional, Union
 import aiohttp
 from config import LOCAL_STORAGE_PATH, PEXELS_API_KEY, PIXABAY_API_KEY, DEFAULT_PLACEHOLDER_VIDEO
@@ -42,14 +42,28 @@ RESOLUTIONS = {
     "1:1": (1080, 1080)
 }
 
-async def synthesize_voice(text: str, voice: str, output_path: str) -> str:
+def synthesize_voice_sync(text: str, tts: str, voice: str, output_path: str) -> str:
     """
-    Synthesize voice from text using edge-tts
+    Synchronously synthesize voice from text using the specified TTS engine
     """
     try:
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(output_path)
-        return output_path
+        if tts not in TTS_HANDLERS:
+            raise ValueError(f"Unsupported TTS engine: {tts}")
+            
+        # Call the appropriate TTS handler
+        return TTS_HANDLERS[tts](text, voice, os.path.basename(output_path), output_path)
+    except Exception as e:
+        logger.error(f"Voice synthesis error: {str(e)}")
+        raise
+
+async def synthesize_voice(text: str, tts: str, voice: str, output_path: str) -> str:
+    """
+    Asynchronously synthesize voice from text using the specified TTS engine
+    """
+    try:
+        return await asyncio.get_event_loop().run_in_executor(
+            None, synthesize_voice_sync, text, tts, voice, output_path
+        )
     except Exception as e:
         logger.error(f"Voice synthesis error: {str(e)}")
         raise
@@ -238,26 +252,18 @@ async def download_media(url: str, output_path: str) -> str:
 
 def extract_scenes(script: str) -> List[str]:
     """
-    Split script into scenes based on paragraphs and lines for more granular scenes
+    Split script into scenes based on natural paragraph breaks.
+    Each paragraph (separated by double newlines) becomes a scene.
     """
-    # First, split by double newlines to identify major paragraphs
-    paragraphs = [para.strip() for para in script.split("\n\n") if para.strip()]
+    # Split by double newlines and clean up
+    scenes = [scene.strip() for scene in script.split("\n\n") if scene.strip()]
     
-    # For paragraphs that are longer, further split by single newlines
-    scenes = []
-    for paragraph in paragraphs:
-        lines = paragraph.split("\n")
-        if len(lines) > 3:  # If paragraph has more than 3 lines, split into smaller scenes
-            # Group every 2-3 lines to create more scenes
-            for i in range(0, len(lines), 2):
-                scene = "\n".join(lines[i:i+2])
-                if scene.strip():
-                    scenes.append(scene.strip())
-        else:
-            scenes.append(paragraph)
+    # Filter out any empty scenes
+    scenes = [scene for scene in scenes if scene]
     
-    # Make sure all scenes have reasonable content
-    scenes = [scene for scene in scenes if len(scene.split()) >= 3]
+    if not scenes:
+        raise ValueError("Script is empty or contains no valid content")
+        
     return scenes
 
 def get_scene_keywords(scene: str) -> List[str]:
@@ -272,50 +278,55 @@ def get_scene_keywords(scene: str) -> List[str]:
 
 def get_media_duration(file_path: str) -> float:
     """
-    Get duration of a media file using ffmpeg
+    Get duration of a media file using MoviePy
     """
-    probe = ffmpeg.probe(file_path)
-    duration = float(probe['format']['duration'])
-    return duration
+    try:
+        if file_path.lower().endswith('.mp3'):
+            clip = AudioFileClip(file_path)
+        else:
+            clip = VideoFileClip(file_path)
+        duration = clip.duration
+        clip.close()
+        return duration
+    except Exception as e:
+        logger.error(f"Error getting media duration: {str(e)}")
+        raise
 
 def crop_video_to_aspect_ratio(video_path: str, target_ratio: str, output_path: str) -> str:
     """
-    Crop video to desired aspect ratio
+    Crop video to desired aspect ratio using MoviePy
     """
     target_width, target_height = RESOLUTIONS[target_ratio]
+    target_ratio_value = target_width / target_height
     
     try:
-        # Get video dimensions
-        probe = ffmpeg.probe(video_path)
-        video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
-        width = int(video_info['width'])
-        height = int(video_info['height'])
+        # Load video clip
+        clip = VideoFileClip(video_path)
         
         # Calculate crop dimensions
-        current_ratio = width / height
-        target_ratio_value = target_width / target_height
+        current_ratio = clip.w / clip.h
         
         if current_ratio > target_ratio_value:
             # Video is too wide, crop width
-            new_width = int(height * target_ratio_value)
-            crop_x = (width - new_width) // 2
-            crop_y = 0
-            crop_width = new_width
-            crop_height = height
+            new_width = int(clip.h * target_ratio_value)
+            crop_x = (clip.w - new_width) // 2
+            cropped = clip.crop(x1=crop_x, width=new_width)
         else:
             # Video is too tall, crop height
-            new_height = int(width / target_ratio_value)
-            crop_x = 0
-            crop_y = (height - new_height) // 2
-            crop_width = width
-            crop_height = new_height
+            new_height = int(clip.w / target_ratio_value)
+            crop_y = (clip.h - new_height) // 2
+            cropped = clip.crop(y1=crop_y, height=new_height)
         
-        # Apply crop and resize
-        stream = ffmpeg.input(video_path)
-        stream = ffmpeg.crop(stream, crop_x, crop_y, crop_width, crop_height)
-        stream = ffmpeg.filter(stream, 'scale', target_width, target_height)
-        stream = ffmpeg.output(stream, output_path, acodec='copy')
-        ffmpeg.run(stream, overwrite_output=True)
+        # Resize to target resolution
+        final = cropped.resize(width=target_width, height=target_height)
+        
+        # Write output
+        final.write_videofile(output_path, codec='libx264', audio=True)
+        
+        # Close clips to release resources
+        clip.close()
+        cropped.close()
+        final.close()
         
         return output_path
     except Exception as e:
@@ -324,62 +335,47 @@ def crop_video_to_aspect_ratio(video_path: str, target_ratio: str, output_path: 
 
 def combine_video_audio(video_path: str, audio_path: str, output_path: str, video_duration: float, audio_duration: float) -> str:
     """
-    Combine video and audio, handling looping if needed
+    Combine video and audio using MoviePy with smooth transitions
     """
     try:
+        video = VideoFileClip(video_path)
+        audio = AudioFileClip(audio_path)
+        
         if video_duration < audio_duration:
-            # Use a better approach for looping video
-            # First, create a temporary file with the same video repeated multiple times
-            with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as f:
-                num_loops = int(audio_duration / video_duration) + 1
-                for _ in range(num_loops):
-                    f.write(f"file '{os.path.abspath(video_path)}'\n")
-                concat_list = f.name
+            # Create a list of video clips that will loop
+            num_loops = int(audio_duration / video_duration) + 1
+            video_clips = [video] * num_loops
             
-            # Create a temporary concatenated video
-            temp_video_path = os.path.join(os.path.dirname(output_path), "temp_looped.mp4")
+            # Concatenate with crossfade transitions
+            final_video = concatenate_videoclips(
+                video_clips,
+                method="compose",
+                transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
+            )
             
-            # Use concat demuxer which is more reliable
-            ffmpeg.input(
-                concat_list,
-                format='concat',
-                safe=0
-            ).output(
-                temp_video_path,
-                c='copy'
-            ).overwrite_output().run()
-            
-            # Now trim the concatenated video to match audio duration
-            input_video = ffmpeg.input(temp_video_path)
-            input_audio = ffmpeg.input(audio_path)
-            
-            # Combine video and audio with the right duration
-            ffmpeg.output(
-                input_video.video.filter('trim', duration=audio_duration),
-                input_audio.audio,
-                output_path,
-                vcodec='libx264',
-                acodec='aac',
-                strict='experimental'
-            ).overwrite_output().run()
-            
-            # Clean up temp files
-            os.unlink(concat_list)
-            os.unlink(temp_video_path)
+            # Trim to match audio duration
+            final_video = final_video.subclip(0, audio_duration)
         else:
-            # Video is longer than audio, just trim it
-            input_video = ffmpeg.input(video_path)
-            input_audio = ffmpeg.input(audio_path)
-            
-            # Combine video and audio
-            ffmpeg.output(
-                input_video.video.filter('trim', duration=audio_duration),
-                input_audio.audio,
-                output_path,
-                vcodec='libx264',
-                acodec='aac',
-                strict='experimental'
-            ).overwrite_output().run()
+            # Just trim the video
+            final_video = video.subclip(0, audio_duration)
+        
+        # Set audio
+        final_video = final_video.set_audio(audio)
+        
+        # Write output with high quality
+        final_video.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile=output_path + ".temp-audio.m4a",
+            remove_temp=True,
+            bitrate="8000k"
+        )
+        
+        # Close clips to release resources
+        video.close()
+        audio.close()
+        final_video.close()
         
         return output_path
     except Exception as e:
@@ -388,38 +384,46 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
 
 def concatenate_videos(video_paths: List[str], output_path: str) -> str:
     """
-    Concatenate multiple videos using ffmpeg
+    Concatenate multiple videos using MoviePy with transitions
     """
     try:
-        # Create a temporary file listing all videos to concatenate
-        with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as f:
-            for video_path in video_paths:
-                f.write(f"file '{os.path.abspath(video_path)}'\n")
-            concat_list = f.name
+        # Load all video clips
+        clips = [VideoFileClip(path) for path in video_paths]
         
-        # Run ffmpeg concatenation
-        ffmpeg.input(
-            concat_list,
-            format='concat',
-            safe=0
-        ).output(
+        # Concatenate with crossfade transitions
+        final_video = concatenate_videoclips(
+            clips,
+            method="compose",
+            transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
+        )
+        
+        # Write output with high quality
+        final_video.write_videofile(
             output_path,
-            c='copy'
-        ).overwrite_output().run()
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile=output_path + ".temp-audio.m4a",
+            remove_temp=True,
+            bitrate="8000k"
+        )
         
-        # Clean up
-        os.unlink(concat_list)
+        # Close all clips to release resources
+        for clip in clips:
+            clip.close()
+        final_video.close()
+        
         return output_path
     except Exception as e:
         logger.error(f"Error concatenating videos: {str(e)}")
         raise
 
 async def process_scene(
-    scene: str, 
-    voice: str, 
-    aspect_ratio: str, 
-    job_id: str, 
-    scene_num: int, 
+    scene: str,
+    tts: str,
+    voice: str,
+    aspect_ratio: str,
+    job_id: str,
+    scene_num: int,
     custom_url: Optional[str] = None,
     use_placeholder: bool = True,
     placeholder_url: Optional[str] = None
@@ -432,7 +436,7 @@ async def process_scene(
     
     # Generate voice for scene
     audio_path = os.path.join(scene_dir, "voice.mp3")
-    await synthesize_voice(scene, voice, audio_path)
+    await synthesize_voice(scene, tts, voice, audio_path)
     
     # Get scene duration from audio
     audio_duration = get_media_duration(audio_path)
@@ -464,11 +468,7 @@ async def process_scene(
     raw_video_path = os.path.join(scene_dir, "raw_video.mp4")
     # Always download if it's not the local default placeholder
     
-    # Debugging: Check if DEFAULT_PLACEHOLDER_VIDEO is in globals
-    logger.info(f"Globals check before line 380: {'DEFAULT_PLACEHOLDER_VIDEO' in globals()}")
-    logger.info(f"Value if present: {globals().get('DEFAULT_PLACEHOLDER_VIDEO', 'Not Found')}")
-
-    if video_url != DEFAULT_PLACEHOLDER_VIDEO:
+    if video_url != DEFAULT_PLACEHOLDER_VIDEO and video_url != os.path.abspath(DEFAULT_PLACEHOLDER_VIDEO):
         await download_media(video_url, raw_video_path)
     else:
         # Copy local placeholder video
@@ -502,6 +502,7 @@ def format_ass_time(seconds):
 
 def process_scripted_video_v1(
     script: str,
+    tts: str,
     voice: str,
     aspect_ratio: str,
     add_captions: bool,
@@ -546,6 +547,7 @@ def process_scripted_video_v1(
             scene_path = loop.run_until_complete(
                 process_scene(
                     scene=scene,
+                    tts=tts,
                     voice=voice,
                     aspect_ratio=aspect_ratio,
                     job_id=job_id,

@@ -20,7 +20,12 @@ The `/v1/video/scripted` endpoint is part of the Video API and enables the gener
 The request body must be a JSON object with the following properties:
 
 - `script` (string, required): The natural language script for the video. Each paragraph will be treated as a separate scene.
-- `voice` (string, optional): The voice ID to use for narration (e.g., "en-US-AriaNeural"). Defaults to "en-US-AriaNeural".
+- `tts` (string, optional): The TTS engine to use. Must be one of:
+  - `edge-tts`: Microsoft Edge TTS (default)
+  - `streamlabs-polly`: Streamlabs Polly voices
+  - `kokoro`: Kokoro AI voices
+- `voice` (string, optional): The voice ID to use for narration. Each TTS engine has its own set of available voices.
+  See the /v1/audio/speech/voices endpoint for available voices for each engine.
 - `aspect_ratio` (string, optional): The desired aspect ratio for the output video. Must be one of:
   - `16:9` (1920x1080, landscape)
   - `9:16` (1080x1920, vertical)
@@ -42,7 +47,8 @@ The request body must be a JSON object with the following properties:
 ```json
 {
     "script": "3 tips to stay focused at work...\n\n1. Take regular breaks\nGive your mind time to reset every hour.\n\n2. Remove distractions\nTurn off notifications and find a quiet space.\n\n3. Use time blocking\nSchedule your tasks in focused blocks of time.",
-    "voice": "en-US-AriaNeural",
+    "tts": "edge-tts",
+    "voice": "en-US-AriaNeural",  // For edge-tts
     "aspect_ratio": "9:16"
 }
 ```
@@ -51,7 +57,8 @@ The request body must be a JSON object with the following properties:
 ```json
 {
     "script": "Welcome to our product demo...",
-    "voice": "en-US-GuyNeural",
+    "tts": "streamlabs-polly",
+    "voice": "Brian",  // For streamlabs-polly
     "aspect_ratio": "16:9",
     "add_captions": true,
     "caption_settings": {
