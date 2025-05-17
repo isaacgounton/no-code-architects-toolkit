@@ -194,7 +194,7 @@ RUN ffmpeg -f lavfi -i color=c=black:s=1280x720:d=10 -c:v libx264 /app/assets/pl
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    DEFAULT_PLACEHOLDER_VIDEO="/app/assets/placeholder.mp4"
+    DEFAULT_PLACEHOLDER_VIDEO="/tmp/assets/placeholder.mp4"
 
 RUN echo '#!/bin/bash\n\
 gunicorn --bind 0.0.0.0:8080 \
