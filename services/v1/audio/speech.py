@@ -287,32 +287,67 @@ def handle_kokoro_tts(text, voice, job_id, rate=None, volume=None, pitch=None):
     """
     Generate TTS audio using kokoro-onnx and save it to LOCAL_STORAGE_PATH.
     Uses Kokoro-82M model with ONNX runtime.
+
+    Parameters:
+        text (str): Text to convert to speech
+        voice (str): Voice ID to use
+        job_id (str): Unique job identifier
+        rate (float): Speech speed multiplier (1.0 is normal speed)
+        volume (float): Audio volume (not implemented)
+        pitch (str): Pitch adjustment (not implemented)
     """
     ensure_kokoro_files()  # Ensure model files are downloaded
+    timestamps_file = None
 
-    # Initialize Kokoro with model files
-    kokoro = kokoro_onnx.Kokoro(MODEL_PATH, VOICES_PATH)
-    
-    # Get available voices if none specified
-    if not voice:
-        voice = "af_sarah"  # Default voice (English)
-    
-    # Generate audio (returns numpy array and sample rate)
-    samples, sr = kokoro.create(text, voice=voice, lang="en-us")
-    
-    # Prepare output path for the .wav file
-    # 'job_id' is the unique identifier passed by generate_tts
-    output_filename = f"{job_id}.wav"
-    wav_output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
-    
-    # Ensure the target directory exists (LOCAL_STORAGE_PATH should exist, but good practice)
-    os.makedirs(LOCAL_STORAGE_PATH, exist_ok=True)
+    try:
+        # Initialize Kokoro with model files
+        kokoro = kokoro_onnx.Kokoro(MODEL_PATH, VOICES_PATH)
+        
+        # Get available voices if none specified
+        if not voice:
+            voice = "af_sarah"  # Default voice (English)
+        
+        # Create options dictionary for kokoro.create()
+        options = {
+            'voice': voice,
+            'lang': 'en-us',
+            'return_timestamps': True
+        }
 
-    # Save audio using soundfile to WAV
-    import soundfile as sf
-    sf.write(wav_output_path, samples, sr)
-    
-    return wav_output_path # Return the path to the generated .wav file
+        # Add speed if specified (default is 1.0)
+        if rate is not None:
+            try:
+                speed = float(rate)
+                if 0.5 <= speed <= 2.0:  # Reasonable speed range
+                    options['speed'] = speed
+            except (ValueError, TypeError):
+                pass  # Invalid speed value, use default
+
+        # Generate audio (returns numpy array, sample rate, and word timestamps)
+        samples, sr, timestamps = kokoro.create(text, **options)
+        # Prepare output paths
+        output_filename = f"{job_id}.wav"
+        wav_output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
+        timestamps_path = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_timestamps.json")
+        
+        # Ensure the target directory exists
+        os.makedirs(LOCAL_STORAGE_PATH, exist_ok=True)
+
+        # Save audio using soundfile to WAV
+        import soundfile as sf
+        sf.write(wav_output_path, samples, sr)
+
+        # Save timestamps if available
+        if timestamps:
+            with open(timestamps_path, 'w') as f:
+                json.dump(timestamps, f)
+            timestamps_file = timestamps_path
+        
+        return wav_output_path, timestamps_file
+
+    except Exception as e:
+        print(f"Error generating audio with Kokoro: {str(e)}")
+        raise
 
 TTS_HANDLERS = {
     'edge-tts': handle_edge_tts,
@@ -320,20 +355,40 @@ TTS_HANDLERS = {
     'kokoro': handle_kokoro_tts
 }
 
-def generate_tts(tts: str, text: str, voice: str, job_id: str, 
-                 output_format: str = "mp3", 
-                 rate: str = None, volume: float = None, pitch: str = None):
+def generate_tts(tts: str, text: str, voice: str, job_id: str,
+                 output_format: str = "mp3",
+                 rate: str = None, volume: float = None, pitch: str = None,
+                 return_timestamps: bool = False,
+                 subtitle_format: str = "srt"):
     """
     Generate TTS audio and subtitle files using the specified tts.
-    Allows choosing output format for Kokoro (wav or mp3).
-    Returns tuple of (audio_file_path, subtitle_file_path).
+    
+    Parameters:
+        tts (str): TTS engine to use ('edge-tts', 'streamlabs-polly', or 'kokoro')
+        text (str): Text to convert to speech
+        voice (str): Voice ID to use
+        job_id (str): Unique job identifier
+        output_format (str): Output audio format ('mp3' or 'wav')
+        rate (str): Speech speed adjustment
+        volume (float): Audio volume
+        pitch (str): Pitch adjustment
+        return_timestamps (bool): Return word timing info for subtitles
+    
+    Returns:
+        tuple: (audio_file_path, subtitle_file_path)
+        The subtitle file will include accurate timestamps if the TTS engine supports them.
     """
     if tts not in TTS_HANDLERS:
         raise ValueError(f"Unsupported tts: {tts}")
 
     # Generate audio file using the appropriate handler
-    # Handlers are expected to save to a path like /tmp/{job_id}.{original_format}
-    raw_audio_file_path = TTS_HANDLERS[tts](text, voice, job_id, rate, volume, pitch)
+    result = TTS_HANDLERS[tts](text, voice, job_id, rate, volume, pitch)
+    
+    if isinstance(result, tuple):
+        raw_audio_file_path, timestamps_file = result
+    else:
+        raw_audio_file_path = result
+        timestamps_file = None
     
     final_audio_file_path = raw_audio_file_path
 
@@ -378,12 +433,99 @@ def generate_tts(tts: str, text: str, voice: str, job_id: str,
         print(f"Warning: Requested 'wav' output for TTS engine '{tts}' which produces MP3. Returning MP3 path: {final_audio_file_path}")
 
 
-    # Generate subtitle file
+    # Generate subtitle file with timestamps if available
     subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.srt")
-    # Basic subtitle generation, consider improving timing if possible
-    with open(subtitle_file, 'w', encoding='utf-8') as f:
-        f.write("1\n")
-        f.write("00:00:00,000 --> 00:00:10,000\n")  # Placeholder duration
-        f.write(text + "\n\n")
+    
+    if timestamps_file and os.path.exists(timestamps_file):
+        try:
+            with open(timestamps_file, 'r') as f:
+                timestamps = json.load(f)
+            
+            # Group words into phrases (roughly 5-7 words per subtitle)
+            phrases = []
+            current_phrase = []
+            current_start = None
+            
+            for segment in timestamps:
+                word = segment.get('word', '')
+                start_time = segment.get('start', 0)
+                end_time = segment.get('end', start_time + 0.5)
+                
+                if not current_start:
+                    current_start = start_time
+                
+                current_phrase.append(word)
+                
+                # Create a new phrase after 5-7 words or on punctuation
+                if len(current_phrase) >= 7 or word.rstrip()[-1] in '.!?':
+                    phrases.append({
+                        'text': ' '.join(current_phrase),
+                        'start': current_start,
+                        'end': end_time
+                    })
+                    current_phrase = []
+                    current_start = None
+            
+            # Add any remaining words
+            if current_phrase:
+                phrases.append({
+                    'text': ' '.join(current_phrase),
+                    'start': current_start,
+                    'end': timestamps[-1].get('end', current_start + 2)
+                })
+            
+            # Write phrases as subtitles in requested format
+            if subtitle_format.lower() == "vtt":
+                # WebVTT format
+                subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.vtt")
+                with open(subtitle_file, 'w', encoding='utf-8') as f:
+                    f.write("WEBVTT\n\n")
+                    for i, phrase in enumerate(phrases, 1):
+                        # Convert times to VTT format (HH:MM:SS.mmm)
+                        start_str = datetime.utcfromtimestamp(phrase['start']).strftime('%H:%M:%S.%f')[:-3]
+                        end_str = datetime.utcfromtimestamp(phrase['end']).strftime('%H:%M:%S.%f')[:-3]
+                        
+                        f.write(f"{i}\n")
+                        f.write(f"{start_str} --> {end_str}\n")
+                        f.write(f"{phrase['text']}\n\n")
+            else:
+                # SRT format (default)
+                subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.srt")
+                with open(subtitle_file, 'w', encoding='utf-8') as f:
+                    for i, phrase in enumerate(phrases, 1):
+                        # Convert times to SRT format (HH:MM:SS,mmm)
+                        start_str = datetime.utcfromtimestamp(phrase['start']).strftime('%H:%M:%S,%f')[:-3]
+                        end_str = datetime.utcfromtimestamp(phrase['end']).strftime('%H:%M:%S,%f')[:-3]
+                        
+                        f.write(f"{i}\n")
+                        f.write(f"{start_str} --> {end_str}\n")
+                        f.write(f"{phrase['text']}\n\n")
+            
+            # Clean up timestamps file
+            os.remove(timestamps_file)
+        except Exception as e:
+            print(f"Error processing timestamps: {str(e)}")
+            # Fall back to basic subtitle generation
+            with open(subtitle_file, 'w', encoding='utf-8') as f:
+                # Write basic subtitle in selected format
+                if subtitle_format.lower() == "vtt":
+                    subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.vtt")
+                    with open(subtitle_file, 'w', encoding='utf-8') as f:
+                        f.write("WEBVTT\n\n")
+                        f.write("1\n")
+                        f.write("00:00:00.000 --> 00:00:10.000\n")
+                        f.write(text + "\n\n")
+                else:
+                    subtitle_file = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.srt")
+                    with open(subtitle_file, 'w', encoding='utf-8') as f:
+                        f.write("1\n")
+                        f.write("00:00:00,000 --> 00:00:10,000\n")
+                        f.write(text + "\n\n")
+    else:
+        # Basic subtitle generation without timestamps
+        with open(subtitle_file, 'w', encoding='utf-8') as f:
+            f.write("1\n")
+            f.write("00:00:00,000 --> 00:00:10,000\n")
+            f.write(text + "\n\n")
     
     return final_audio_file_path, subtitle_file
