@@ -503,14 +503,40 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
                     except:
                         pass
             
-            # Trim to match audio duration
-            final_video = final_video.subclip(0, audio_duration)
+            # Calculate safe duration to avoid frame access issues
+            safe_duration = min(final_video.duration, audio_duration)
+            if safe_duration <= 0:
+                raise ValueError("Invalid video duration after concatenation")
+                
+            logger.info(f"Trimming video to {safe_duration}s to match audio")
+            try:
+                # Trim to match audio duration
+                final_video = final_video.subclip(0, safe_duration - 0.1)  # Subtract small buffer to avoid edge case
+            except Exception as e:
+                logger.error(f"Error trimming video: {str(e)}")
+                raise
         else:
-            # Just trim the video
-            final_video = video.subclip(0, audio_duration)
+            # Calculate safe duration for single clip
+            safe_duration = min(video.duration, audio_duration)
+            if safe_duration <= 0:
+                raise ValueError("Invalid video duration for single clip")
+                
+            try:
+                # Just trim the video with buffer
+                final_video = video.subclip(0, safe_duration - 0.1)
+            except Exception as e:
+                logger.error(f"Error trimming single video: {str(e)}")
+                raise
         
-        # Set audio
-        final_video = final_video.set_audio(audio)
+        logger.info(f"Setting audio track (duration={audio.duration}s)")
+        try:
+            # Set audio with validation
+            if final_video is None:
+                raise ValueError("Video processing failed before audio combination")
+            final_video = final_video.set_audio(audio)
+        except Exception as e:
+            logger.error(f"Error setting audio: {str(e)}")
+            raise
         
         # Write output with high quality
         final_video.write_videofile(
