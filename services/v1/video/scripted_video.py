@@ -368,21 +368,76 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
     """
     Combine video and audio using MoviePy with smooth transitions
     """
+    # Validate inputs
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+    if not os.path.exists(audio_path):
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+    if video_duration <= 0:
+        raise ValueError(f"Invalid video duration: {video_duration}")
+    if audio_duration <= 0:
+        raise ValueError(f"Invalid audio duration: {audio_duration}")
+    
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     try:
-        video = VideoFileClip(video_path)
-        audio = AudioFileClip(audio_path)
+        # Load video and audio with error checking
+        try:
+            video = VideoFileClip(video_path)
+            if not hasattr(video, 'duration') or video.duration is None:
+                raise ValueError("Video clip has invalid duration")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load video file: {str(e)}")
+            
+        try:
+            audio = AudioFileClip(audio_path)
+            if not hasattr(audio, 'duration') or audio.duration is None:
+                raise ValueError("Audio clip has invalid duration")
+        except Exception as e:
+            if 'video' in locals():
+                video.close()  # Clean up video if audio fails
+            raise RuntimeError(f"Failed to load audio file: {str(e)}")
         
         if video_duration < audio_duration:
             # Create a list of video clips that will loop
             num_loops = int(audio_duration / video_duration) + 1
-            video_clips = [video] * num_loops
+            video_clips = []
             
-            # Concatenate with crossfade transitions
-            final_video = concatenate_videoclips(
-                video_clips,
-                method="compose",
-                transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
-            )
+            try:
+                # Create new instances of VideoFileClip for each loop
+                for _ in range(num_loops):
+                    try:
+                        clip = VideoFileClip(video_path)
+                        if not hasattr(clip, 'duration') or clip.duration is None:
+                            raise ValueError("Video clip has invalid duration")
+                        video_clips.append(clip)
+                    except Exception as e:
+                        # Clean up any clips we managed to create before the error
+                        for created_clip in video_clips:
+                            try:
+                                created_clip.close()
+                            except:
+                                pass
+                        raise RuntimeError(f"Failed to create video clip: {str(e)}")
+                
+                # Concatenate with crossfade transitions
+                try:
+                    final_video = concatenate_videoclips(
+                        video_clips,
+                        method="compose",
+                        transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
+                    )
+                except Exception as e:
+                    raise RuntimeError(f"Failed to concatenate video clips: {str(e)}")
+            finally:
+                # Close all video clips
+                for clip in video_clips:
+                    try:
+                        clip.close()
+                    except:
+                        pass
             
             # Trim to match audio duration
             final_video = final_video.subclip(0, audio_duration)
@@ -417,31 +472,71 @@ def concatenate_videos(video_paths: List[str], output_path: str) -> str:
     """
     Concatenate multiple videos using MoviePy with transitions
     """
+    # Validate inputs
+    if not video_paths:
+        raise ValueError("No video paths provided for concatenation")
+    for path in video_paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Video file not found: {path}")
+            
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    
+    clips = []
     try:
-        # Load all video clips
-        clips = [VideoFileClip(path) for path in video_paths]
+        # Load all video clips with validation
+        for path in video_paths:
+            try:
+                clip = VideoFileClip(path)
+                if not hasattr(clip, 'duration') or clip.duration is None:
+                    raise ValueError(f"Video clip has invalid duration: {path}")
+                clips.append(clip)
+            except Exception as e:
+                # Clean up any clips we managed to load before the error
+                for loaded_clip in clips:
+                    try:
+                        loaded_clip.close()
+                    except:
+                        pass
+                raise RuntimeError(f"Failed to load video clip {path}: {str(e)}")
         
-        # Concatenate with crossfade transitions
-        final_video = concatenate_videoclips(
-            clips,
-            method="compose",
-            transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
-        )
-        
-        # Write output with high quality
-        final_video.write_videofile(
-            output_path,
-            codec='libx264',
-            audio_codec='aac',
-            temp_audiofile=output_path + ".temp-audio.m4a",
-            remove_temp=True,
-            bitrate="8000k"
-        )
-        
-        # Close all clips to release resources
-        for clip in clips:
-            clip.close()
-        final_video.close()
+        final_video = None
+        try:
+            # Concatenate with crossfade transitions
+            final_video = concatenate_videoclips(
+                clips,
+                method="compose",
+                transition=lambda t: min(1, 2*t) * min(1, 2*(1-t))  # Smooth transition
+            )
+
+            if not hasattr(final_video, 'duration') or final_video.duration is None:
+                raise ValueError("Concatenated video has invalid duration")
+            
+            # Write output with high quality
+            final_video.write_videofile(
+                output_path,
+                codec='libx264',
+                audio_codec='aac',
+                temp_audiofile=output_path + ".temp-audio.m4a",
+                remove_temp=True,
+                bitrate="8000k"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to concatenate video clips: {str(e)}")
+        finally:
+            # Clean up all resources
+            for clip in clips:
+                try:
+                    clip.close()
+                except:
+                    pass
+            if final_video:
+                try:
+                    final_video.close()
+                except:
+                    pass
         
         return output_path
     except Exception as e:
