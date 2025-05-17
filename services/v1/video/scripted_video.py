@@ -750,10 +750,9 @@ def process_scripted_video_v1(
                              for item in custom_media if 'scene_index' in item and 'media_url' in item}
 
             async def process_scene_with_retries(scene, index):
-                # Use semaphore to limit concurrent processing
-                async with semaphore:
-                    return await with_retries(
-                        process_scene,
+                # Create a lambda to wrap the process_scene call with its arguments
+                async def process_scene_wrapped():
+                    return await process_scene(
                         scene=scene,
                         tts=tts,
                         voice=voice,
@@ -764,6 +763,10 @@ def process_scripted_video_v1(
                         use_placeholder=use_placeholder,
                         placeholder_url=placeholder_url
                     )
+                
+                # Use semaphore to limit concurrent processing
+                async with semaphore:
+                    return await with_retries(process_scene_wrapped)
 
             # Process all scenes concurrently
             tasks = [process_scene_with_retries(scene, i) for i, scene in enumerate(scenes)]
