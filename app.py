@@ -231,7 +231,6 @@ def create_app():
     from routes.v1.toolkit.authenticate import v1_toolkit_auth_bp
     from routes.v1.code.execute.execute_python import v1_code_execute_bp
     from routes.v1.s3.upload import v1_s3_upload_bp
-    # Removed upload_file import as it's now part of upload.py
     from routes.v1.video.thumbnail import v1_video_thumbnail_bp
     from routes.v1.media.download import v1_media_download_bp
     from routes.v1.media.convert.media_convert import v1_media_convert_bp
@@ -246,11 +245,7 @@ def create_app():
     from routes.v1.audio.speech import v1_audio_speech_bp
     from routes.v1.media.media_duration import v1_media_duration_bp
     from routes.v1.video.scripted_video import v1_video_scripted_bp
-    from routes.v1.chat.completions import v1_chat_completions_bp
-    # Commenting out shortgpt import as it's causing issues
-    # from routes.v1.video.shortgpt import shortgpt_bp as v1_video_shortgpt_bp
 
-    app.register_blueprint(v1_chat_completions_bp)
     app.register_blueprint(v1_ffmpeg_compose_bp)
     app.register_blueprint(v1_media_transcribe_bp)
     app.register_blueprint(v1_media_feedback_bp)
@@ -281,8 +276,6 @@ def create_app():
     app.register_blueprint(v1_audio_speech_bp)
     app.register_blueprint(v1_media_duration_bp)
     app.register_blueprint(v1_video_scripted_bp)
-    # Commenting out shortgpt registration as it's causing issues
-    # app.register_blueprint(v1_video_shortgpt_bp)
 
     return app
 
