@@ -15,9 +15,7 @@ services:
       - app-network
 
   ollama:
-    build:
-      context: .
-      dockerfile: Dockerfile.ollama
+    image: ollama/ollama:latest
     ports:
       - "11434:11434"
     environment:
@@ -27,25 +25,24 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - app-network
-    # This healthcheck ensures Ollama is ready before API starts
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:11434/api/tags || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
 
   init-ollama:
-    image: curlimages/curl:latest
+    image: busybox:latest
     command: |
       sh -c '
       echo "Waiting for Ollama to be ready..."
-      until curl -s -f "http://ollama:11434/api/tags" > /dev/null 2>&1; do
+      until wget -q --spider http://ollama:11434/api/tags; do
         sleep 2
       done
       echo "Ollama is ready"
       echo "Pulling Gemma 1B model..."
-      curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"gemma3:1b\"}"
+      wget --post-data="{\"name\": \"gemma3:1b\"}" --header="Content-Type: application/json" -O - http://ollama:11434/api/pull
       echo "Setup complete!"
       '
     depends_on:
