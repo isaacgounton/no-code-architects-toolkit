@@ -10,7 +10,7 @@ services:
       - MAX_QUEUE_LENGTH=100
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
     networks:
       - app-network
 
@@ -25,12 +25,6 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - app-network
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:11434/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   init-ollama:
     image: busybox:latest
@@ -57,7 +51,7 @@ services:
       '
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
     networks:
       - app-network
 
