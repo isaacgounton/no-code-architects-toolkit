@@ -23,10 +23,43 @@ class ChatCompletionError(Exception):
     """Custom exception for chat completion errors"""
     pass
 
+import time
+import backoff
+import logging
+
+logger = logging.getLogger(__name__)
+
 class ChatService:
     def __init__(self):
         self.base_url = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
         self.model = "qwen:1.7b"
+        self.max_retries = 5
+        self.retry_delay = 2
+
+    @backoff.on_exception(
+        backoff.expo,
+        (requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+        max_tries=5,
+        max_time=30
+    )
+    def _make_request(self, endpoint: str, data: Dict[str, Any], stream: bool = False) -> requests.Response:
+        """Make a request to Ollama with retry logic"""
+        url = f"{self.base_url}/{endpoint}"
+        try:
+            logger.debug(f"Making request to {url}")
+            response = requests.post(url, json=data, stream=stream, timeout=60)
+            response.raise_for_status()
+            logger.debug("Request successful")
+            return response
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error to Ollama service: {str(e)}")
+            raise ChatCompletionError(f"Failed to connect to Ollama service. Please ensure Ollama is running and accessible.")
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Request timeout: {str(e)}")
+            raise ChatCompletionError("Request to Ollama service timed out. Please try again.")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error: {str(e)}")
+            raise ChatCompletionError(f"Error communicating with Ollama service: {str(e)}")
 
     def generate_completion(
         self,
@@ -71,12 +104,8 @@ class ChatService:
             if max_tokens:
                 payload['options']['num_predict'] = max_tokens
 
-            # Make the API request
-            response = requests.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                stream=stream
-            )
+            # Make the API request with retry logic
+            response = self._make_request("api/chat", payload, stream=stream)
 
             if not response.ok:
                 raise ChatCompletionError(f"Ollama API error: {response.text}")
@@ -106,8 +135,11 @@ class ChatService:
                 }
 
         except requests.exceptions.RequestException as e:
+            logger.error(f"Network error: {str(e)}")
             raise ChatCompletionError(f"Network error: {str(e)}")
-        except json.JSONDecodeError:
-            raise ChatCompletionError("Invalid JSON response from Ollama API")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response: {str(e)}")
+            raise ChatCompletionError("Invalid response from Ollama API")
         except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
             raise ChatCompletionError(f"Unexpected error: {str(e)}")

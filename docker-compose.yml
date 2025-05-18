@@ -9,7 +9,8 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - MAX_QUEUE_LENGTH=100
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -23,10 +24,11 @@ services:
       - app-network
     # This healthcheck ensures Ollama is ready before API starts
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   init-ollama:
     image: curlimages/curl:latest
