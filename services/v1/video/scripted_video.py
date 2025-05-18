@@ -301,9 +301,11 @@ async def with_retries(func, *args, retries=max_retries, delay=retry_delay):
                 logger.error(f"All {retries} retries failed for {func_name}: {str(e)}")
                 raise last_error
 
-async def fetch_stock_media(query: str, media_type: str = "video", custom_url: Optional[str] = None) -> List[Dict[str, Any]]:
+async def fetch_stock_media(query: str, media_type: str = "video", custom_url: Optional[str] = None, 
+                        try_images: bool = False) -> List[Dict[str, Any]]:
     """
-    Fetch stock media with fallback options, retries, and custom URL support
+    Fetch stock media with fallback options, retries, and custom URL support.
+    If try_images is True, will also search for images when video results are insufficient.
     """
     global used_videos
 
@@ -312,7 +314,8 @@ async def fetch_stock_media(query: str, media_type: str = "video", custom_url: O
         return [{
             "video_files" if media_type == "video" else "photos": [{
                 "link": custom_url
-            }]
+            }],
+            "media_type": media_type
         }]
     
     # Try Pexels first with retries
@@ -324,10 +327,26 @@ async def fetch_stock_media(query: str, media_type: str = "video", custom_url: O
             video_url = result.get("video_files", [{}])[0].get("link") if media_type == "video" else result.get("photos", [{}])[0].get("link")
             if video_url and video_url not in used_videos:
                 used_videos.add(video_url)
+                result["media_type"] = media_type
                 return [result]
     
-    # If no new results from Pexels, try Pixabay
-    logger.info(f"No new results from Pexels for '{query}', trying Pixabay")
+    # If no new results from Pexels or try_images is True, try images
+    if try_images and media_type == "video":
+        logger.info(f"Trying Pexels image search for '{query}'")
+        image_results = await fetch_from_pexels(query, "photo")
+        if image_results:
+            for result in image_results:
+                if "src" in result:
+                    image_url = result["src"].get("original")
+                    if image_url and image_url not in used_videos:
+                        used_videos.add(image_url)
+                        return [{
+                            "photos": [{"link": image_url}],
+                            "media_type": "photo"
+                        }]
+    
+    # If no suitable images found, try Pixabay videos
+    logger.info(f"No suitable Pexels media found for '{query}', trying Pixabay")
     pixabay_results = await fetch_from_pixabay(query, media_type)
     
     if pixabay_results:
@@ -562,11 +581,17 @@ def crop_video_to_aspect_ratio(video_path: str, target_ratio: str, output_path: 
         # Execute FFmpeg command
         process = subprocess.run(cmd, check=True, capture_output=True, text=True)
         
-        # Verify the output file was created
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        # Verify the output file and validate it
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0 or not validate_video_file(output_path):
+            if use_placeholder and video_source != "default_placeholder":
+                logger.warning("Failed to crop video, falling back to placeholder")
+                if placeholder_url:
+                    return placeholder_url
+                elif os.path.exists(DEFAULT_PLACEHOLDER_VIDEO):
+                    return DEFAULT_PLACEHOLDER_VIDEO
             logger.error("FFmpeg did not produce valid output file")
-            raise RuntimeError("Failed to crop video: Output file is empty or does not exist")
-            
+            raise RuntimeError("Failed to crop video and no valid placeholder available")
+        
         logger.info(f"Successfully cropped video to {target_ratio} ratio ({target_width}x{target_height})")
         
         return output_path
@@ -773,12 +798,15 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
             ]
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         
-        # Verify the output file was created and is valid
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            raise RuntimeError(f"Failed to create valid output file: {output_path}")
-        
-        if not validate_video_file(output_path):
-            raise RuntimeError(f"Output video is invalid or corrupted: {output_path}")
+        # Verify the output file and validate it
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0 or not validate_video_file(output_path):
+            if use_placeholder and video_source != "default_placeholder":
+                logger.warning("Failed to combine video and audio, falling back to placeholder")
+                if placeholder_url:
+                    return placeholder_url
+                elif os.path.exists(DEFAULT_PLACEHOLDER_VIDEO):
+                    return DEFAULT_PLACEHOLDER_VIDEO
+            raise RuntimeError("Failed to create valid output file and no placeholder available")
             
         # Double-check the video duration to ensure it matches audio duration
         final_duration = get_media_duration(output_path)
@@ -1374,11 +1402,81 @@ async def process_scene(
                     try:
                         stock_videos = await fetch_stock_media(kw)
                         
-                        if stock_videos and len(stock_videos) > 0 and 'video_files' in stock_videos[0] and len(stock_videos[0]['video_files']) > 0:
-                            video_url = stock_videos[0]['video_files'][0]['link']
-                            logger.info(f"Found stock video for scene {scene_num} using keywords: {kw}")
-                            video_source = "stock"
-                            break
+                        # Try each stock media until we find suitable content
+                        if stock_videos:
+                            for result in stock_videos:
+                                media_type = result.get("media_type", "video")
+                                
+                                if media_type == "video" and 'video_files' in result and result['video_files']:
+                                    potential_video_url = result['video_files'][0]['link']
+                                    # Download and validate the video
+                                    temp_path = os.path.join(scene_dir, f"temp_validate_{uuid.uuid4().hex[:6]}.mp4")
+                                    try:
+                                        await download_media(potential_video_url, temp_path)
+                                        if validate_video_file(temp_path):
+                                            video_length = get_media_duration(temp_path)
+                                            if video_length >= audio_duration * 0.8:  # At least 80% of needed duration
+                                                video_url = potential_video_url
+                                                logger.info(f"Found suitable stock video ({video_length:.1f}s) for scene {scene_num}")
+                                                video_source = "stock_video"
+                                                break
+                                            else:
+                                                if use_placeholder:
+                                                    logger.warning(f"Stock video too short ({video_length:.1f}s < {audio_duration * 0.8:.1f}s), falling back to placeholder")
+                                                    if placeholder_url:
+                                                        video_url = placeholder_url
+                                                        video_source = "custom_placeholder"
+                                                        break
+                                                    elif os.path.exists(DEFAULT_PLACEHOLDER_VIDEO):
+                                                        video_url = DEFAULT_PLACEHOLDER_VIDEO
+                                                        video_source = "default_placeholder"
+                                                        break
+                                                
+                                                # If no placeholder or placeholder not requested, try images
+                                                logger.info(f"Video too short ({video_length:.1f}s), trying stock images")
+                                                image_results = await fetch_stock_media(keywords[0], media_type="video", try_images=True)
+                                                if image_results and image_results[0].get("media_type") == "photo":
+                                                    image_url = image_results[0]['photos'][0]['link']
+                                                    # Convert image to video
+                                                    temp_img_path = os.path.join(scene_dir, f"temp_image_{uuid.uuid4().hex[:6]}.jpg")
+                                                    temp_img_video = os.path.join(scene_dir, f"temp_video_{uuid.uuid4().hex[:6]}.mp4")
+                                                    temp_files.extend([temp_img_path, temp_img_video])
+                                                    try:
+                                                        # Download image
+                                                        await download_media(image_url, temp_img_path)
+                                                        # Convert image to video with zoom effect
+                                                        subprocess.run([
+                                                            'ffmpeg', '-loop', '1',
+                                                            '-i', temp_img_path,
+                                                            '-t', str(audio_duration + 0.5),  # Add small buffer
+                                                            '-filter_complex', '[0:v]scale=-2:1080,zoompan=z=\'min(zoom+0.002,1.5)\':d=125:x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\'',
+                                                            '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                                                            '-y', temp_img_video
+                                                        ], check=True, capture_output=True)
+                                                        if validate_video_file(temp_img_video):
+                                                            video_url = temp_img_video
+                                                            video_source = "stock_image"
+                                                            logger.info(f"Successfully created video from stock image for scene {scene_num}")
+                                                            break
+                                                    except Exception as img_error:
+                                                        logger.warning(f"Error converting image to video: {str(img_error)}")
+                                                    finally:
+                                                        if os.path.exists(temp_img_path):
+                                                            try:
+                                                                os.remove(temp_img_path)
+                                                            except:
+                                                                pass
+                                    except Exception as validate_error:
+                                        logger.warning(f"Error validating stock video: {str(validate_error)}")
+                                    finally:
+                                        if os.path.exists(temp_path):
+                                            try:
+                                                os.remove(temp_path)
+                                            except:
+                                                pass
+                            
+                            if video_url:  # Found a suitable video
+                                break
                     except Exception as kw_error:
                         logger.warning(f"Error fetching stock media for scene {scene_num} with keywords '{kw}': {str(kw_error)}")
                         video_fetch_errors.append(str(kw_error))
