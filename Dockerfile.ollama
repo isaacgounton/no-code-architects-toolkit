@@ -1,0 +1,8 @@
+FROM ollama/ollama:latest
+
+# Install curl
+RUN apk add --no-cache curl
+
+# Set the entrypoint back to ollama serve
+ENTRYPOINT ["ollama"]
+CMD ["serve"]

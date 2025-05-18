@@ -15,10 +15,11 @@ services:
       - app-network
 
   ollama:
-    image: ollama/ollama:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama
     ports:
       - "11434:11434"
-    command: sh -c "apt-get update && apt-get install -y curl && ollama serve"
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_ORIGINS=*
