@@ -944,25 +944,73 @@ def concatenate_videos(video_paths: List[str], output_path: str) -> str:
                 escaped_path = path.replace('\\', '\\\\').replace("'", "'\\''")
                 f.write(f"file '{escaped_path}'\n")
         
+        # Create intermediate directory for processed videos
+        temp_dir = os.path.join(os.path.dirname(output_path), f"processed_{uuid.uuid4().hex[:8]}")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_files.append(temp_dir)
+
+        # Process each video to ensure consistent timestamps and format
+        processed_paths = []
+        for i, video_path in enumerate(video_paths_to_concat):
+            processed_path = os.path.join(temp_dir, f"processed_{i}.mp4")
+            logger.info(f"Pre-processing video {i+1}/{len(video_paths_to_concat)} for timestamp consistency...")
+            
+            # First pass: standardize format and reset timestamps
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', '23',
+                '-vsync', '0',  # Prevent timestamp issues
+                '-enc_time_base', '-1',  # Use input stream time base
+                '-avoid_negative_ts', 'make_zero',  # Reset negative timestamps
+                '-pix_fmt', 'yuv420p',
+                '-video_track_timescale', '90000',  # Consistent timescale
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-ar', '48000',  # Standardize audio sample rate
+                '-af', 'aresample=async=1:min_hard_comp=0.100000',  # Handle audio sync
+                '-y',
+                processed_path
+            ]
+            
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                if validate_video_file(processed_path):
+                    processed_paths.append(processed_path)
+                    temp_files.append(processed_path)
+                else:
+                    raise RuntimeError(f"Failed to process video {i+1}")
+            except Exception as e:
+                logger.error(f"Error processing video {i+1}: {str(e)}")
+                raise
+
         # Create output directory if needed
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
+
+        # Create new concat file with processed videos
+        processed_concat_file = os.path.join(temp_dir, "processed_concat.txt")
+        temp_files.append(processed_concat_file)
         
-        # Always use re-encoding for reliable concatenation
-        logger.info("Concatenating videos with re-encoding for reliability...")
-        # Re-encode during concatenation for better compatibility
+        with open(processed_concat_file, 'w', encoding='utf-8') as f:
+            for path in processed_paths:
+                escaped_path = path.replace('\\', '\\\\').replace("'", "'\\''")
+                f.write(f"file '{escaped_path}'\n")
+
+        logger.info("Concatenating processed videos with timestamp correction...")
+        # Final concatenation with timestamp correction
         cmd = [
             'ffmpeg',
             '-f', 'concat',
             '-safe', '0',
-            '-i', concat_file,
-            '-c:v', 'libx264',
-            '-preset', 'medium',
-            '-crf', '23',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-pix_fmt', 'yuv420p',  # Ensure compatible pixel format
+            '-i', processed_concat_file,
+            '-c', 'copy',  # Use copy since videos are already standardized
+            '-fflags', '+genpts',  # Generate presentation timestamps
+            '-ignore_editlist', '1',
+            '-movflags', '+faststart',
             '-y',
             output_path
         ]
