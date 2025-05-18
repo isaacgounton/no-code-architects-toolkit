@@ -122,11 +122,10 @@ def upload_file(file_path: str) -> str:
         logger.error(f"Error uploading file to cloud storage: {e}")
         raise
 
-# Add the missing function that shortgpt_service.py is trying to import
+# Async version of upload_file
 async def upload_to_cloud_storage(file_path: str, job_id: str = None) -> str:
     """
     Upload a file to cloud storage and return the URL.
-    This function is used by shortgpt_service.py.
     """
     logger.info(f"Uploading file to cloud storage via upload_to_cloud_storage: {file_path}")
     try:

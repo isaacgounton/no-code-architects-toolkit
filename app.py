@@ -247,7 +247,8 @@ def create_app():
     from routes.v1.media.media_duration import v1_media_duration_bp
     from routes.v1.video.scripted_video import v1_video_scripted_bp
     from routes.v1.chat.completions import v1_chat_completions_bp
-    from routes.v1.video.shortgpt import shortgpt_bp as v1_video_shortgpt_bp
+    # Commenting out shortgpt import as it's causing issues
+    # from routes.v1.video.shortgpt import shortgpt_bp as v1_video_shortgpt_bp
 
     app.register_blueprint(v1_chat_completions_bp)
     app.register_blueprint(v1_ffmpeg_compose_bp)
@@ -280,7 +281,8 @@ def create_app():
     app.register_blueprint(v1_audio_speech_bp)
     app.register_blueprint(v1_media_duration_bp)
     app.register_blueprint(v1_video_scripted_bp)
-    app.register_blueprint(v1_video_shortgpt_bp)
+    # Commenting out shortgpt registration as it's causing issues
+    # app.register_blueprint(v1_video_shortgpt_bp)
 
     return app
 

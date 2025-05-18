@@ -191,7 +191,7 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 8080
 
-# Create directories for assets and ShortGPT content
+# Create directories for assets
 RUN mkdir -p /tmp/assets && \
     mkdir -p /app/public/assets && \
     chown -R appuser:appuser /app/public
