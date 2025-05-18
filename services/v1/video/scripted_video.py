@@ -650,26 +650,15 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
                     for i in range(total_loops_needed):
                         input_args.extend(['-i', silent_video])
                     
-                    # Build complex filter for smooth crossfades
-                    for i in range(total_loops_needed - 1):
-                        if i == 0:
-                            filter_complex += f"[{i}:v]trim=end={video_duration-fade_duration},setpts=PTS-STARTPTS[v{i}];"
-                        else:
-                            filter_complex += f"[{i}:v]trim=start=0:end={video_duration-fade_duration},setpts=PTS-STARTPTS[v{i}];"
-                            
-                    # Add crossfade transitions
-                    for i in range(total_loops_needed - 1):
-                        next_i = i + 1
-                        if i == 0:
-                            filter_complex += f"[v{i}]"
-                        if i < total_loops_needed - 2:
-                            filter_complex += f"[{next_i}:v]trim=start={fade_duration}:end={video_duration-fade_duration},setpts=PTS-STARTPTS[v{next_i}clean];"
-                            filter_complex += f"[{next_i}:v]trim=start=0:end={fade_duration},setpts=PTS-STARTPTS,format=yuva420p,fade=t=in:st=0:d={fade_duration}:alpha=1[v{next_i}fade];"
-                            filter_complex += f"[xfaded{i}][v{next_i}fade]overlay[xfaded{next_i}];"
-                            filter_complex += f"[xfaded{next_i}][v{next_i}clean]append[xfaded{next_i+1}];"
-                        else:
-                            filter_complex += f"[{next_i}:v]setpts=PTS-STARTPTS[v{next_i}];"
-                            filter_complex += f"[xfaded{i}][v{next_i}]overlay=shortest=1[xfaded{next_i}];"
+                    # Simplified crossfade filter
+                    filter_complex = ""
+                    for i in range(total_loops_needed):
+                        filter_complex += f"[{i}:v]trim=0:{video_duration},setpts=PTS-STARTPTS[v{i}];"
+                    
+                    # Chain videos together with crossfade
+                    filter_complex += f"[v0]"
+                    for i in range(1, total_loops_needed):
+                        filter_complex += f"[v{i}]xfade=transition=fade:duration={fade_duration}:offset={i*video_duration-fade_duration},"
                     
                     filter_complex = filter_complex.replace("[xfaded0]", f"[0:v]trim=start=0:end={video_duration},setpts=PTS-STARTPTS[xfaded0];[xfaded0]")
                     filter_complex += f"[xfaded{total_loops_needed-1}]trim=0:{audio_duration+fade_duration}[vout]"
@@ -959,55 +948,27 @@ def concatenate_videos(video_paths: List[str], output_path: str) -> str:
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-            
-        # First try the concat demuxer with copy codecs (fastest)
-        logger.info("Attempting fast concatenation with copy codecs...")
-        success = False
         
-        try:
-            # Build FFmpeg command for fast method
-            cmd = [
-                'ffmpeg',
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', concat_file,
-                '-c', 'copy',  # Try copy first (fast)
-                '-y',
-                output_path
-            ]
-            
-            # Execute FFmpeg command
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            
-            # Verify the output is valid
-            if validate_video_file(output_path):
-                success = True
-                logger.info("Fast concatenation successful")
-            else:
-                logger.warning("Fast concatenation produced invalid output, trying with re-encoding...")
-        except Exception as e:
-            logger.warning(f"Fast concatenation failed: {str(e)}, trying with re-encoding...")
+        # Always use re-encoding for reliable concatenation
+        logger.info("Concatenating videos with re-encoding for reliability...")
+        # Re-encode during concatenation for better compatibility
+        cmd = [
+            'ffmpeg',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', concat_file,
+            '-c:v', 'libx264',
+            '-preset', 'medium',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-pix_fmt', 'yuv420p',  # Ensure compatible pixel format
+            '-y',
+            output_path
+        ]
         
-        # If fast method failed, try the more reliable re-encoding approach
-        if not success:
-            # Re-encode during concatenation for better compatibility
-            cmd = [
-                'ffmpeg',
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', concat_file,
-                '-c:v', 'libx264',
-                '-preset', 'medium',
-                '-crf', '23',
-                '-c:a', 'aac',
-                '-b:a', '192k',
-                '-pix_fmt', 'yuv420p',  # Ensure compatible pixel format
-                '-y',
-                output_path
-            ]
-            
-            # Execute FFmpeg command
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        # Execute FFmpeg command
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         
         # Final verification
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
