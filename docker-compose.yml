@@ -18,17 +18,21 @@ services:
     image: ollama/ollama:latest
     ports:
       - "11434:11434"
+    command: sh -c "apt-get update && apt-get install -y curl && ollama serve"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_ORIGINS=*
     volumes:
       - ollama_data:/root/.ollama
     networks:
       - app-network
     # This healthcheck ensures Ollama is ready before API starts
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   init-ollama:
     image: curlimages/curl:latest
@@ -39,8 +43,8 @@ services:
         sleep 2
       done
       echo "Ollama is ready"
-      echo "Pulling Qwen 1.7B model..."
-      curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"qwen:1.7b\"}"
+      echo "Pulling Gemma 1B model..."
+      curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"gemma3:1b\"}"
       echo "Setup complete!"
       '
     depends_on:

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 class ChatService:
     def __init__(self):
         self.base_url = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
-        self.model = "qwen:1.7b"
+        self.model = "gemma3:1b"
         self.max_retries = 5
         self.retry_delay = 2
 
