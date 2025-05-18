@@ -26,24 +26,34 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:11434/api/tags || exit 1"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:11434/api/health"]
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 20s
 
   init-ollama:
     image: busybox:latest
     command: |
       sh -c '
       echo "Waiting for Ollama to be ready..."
-      until wget -q --spider http://ollama:11434/api/tags; do
-        sleep 2
+      for i in $$(seq 1 60); do
+        if wget -q --spider --timeout=10 http://ollama:11434/api/tags; then
+          echo "Ollama is ready"
+          echo "Pulling Gemma 1B model..."
+          if wget --post-data="{\"name\": \"gemma3:1b\"}" --header="Content-Type: application/json" -O - http://ollama:11434/api/pull; then
+            echo "Setup complete!"
+            exit 0
+          else
+            echo "Failed to pull model, retrying..."
+            sleep 10
+          fi
+        fi
+        echo "Attempt $$i: Ollama not ready yet..."
+        sleep 10
       done
-      echo "Ollama is ready"
-      echo "Pulling Gemma 1B model..."
-      wget --post-data="{\"name\": \"gemma3:1b\"}" --header="Content-Type: application/json" -O - http://ollama:11434/api/pull
-      echo "Setup complete!"
+      echo "Timed out waiting for Ollama"
+      exit 1
       '
     depends_on:
       ollama:
