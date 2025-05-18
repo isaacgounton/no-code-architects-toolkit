@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtool \
     libfribidi-dev \
     libharfbuzz-dev \
+    imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 # Install SRT from source (latest version using cmake)
@@ -190,15 +191,22 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 8080
 
-# Create directories for assets
-RUN mkdir -p /tmp/assets
+# Create directories for assets and ShortGPT content
+RUN mkdir -p /tmp/assets && \
+    mkdir -p /app/public/assets && \
+    chown -R appuser:appuser /app/public
 
 # Create placeholder video file
 RUN ffmpeg -f lavfi -i color=c=black:s=1280x720:d=10 -c:v libx264 /tmp/assets/placeholder.mp4
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    DEFAULT_PLACEHOLDER_VIDEO="/tmp/assets/placeholder.mp4"
+    DEFAULT_PLACEHOLDER_VIDEO="/tmp/assets/placeholder.mp4" \
+    OPENAI_API_KEY="" \
+    PEXELS_API_KEY="" \
+    ELEVENLABS_API_KEY="" \
+    DEFAULT_BACKGROUND_MUSIC="" \
+    DEFAULT_BACKGROUND_VIDEO=""
 
 RUN echo '#!/bin/bash\n\
 gunicorn --bind 0.0.0.0:8080 \
