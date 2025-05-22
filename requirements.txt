@@ -27,3 +27,4 @@ wget
 jsonschema>=4.17.3
 ffmpeg-python>=0.2.0
 backoff>=2.2.1
+youtube-transcript-api>=1.0.3
