@@ -132,31 +132,45 @@ def download_media(job_id, data):
     is_youtube = video_id is not None
     logger.info(f"Job {job_id}: Received download request for {'YouTube video' if is_youtube else 'media'} {media_url}")
 
+    transcript_data = None
     # Handle transcript request for YouTube videos
     if is_youtube and transcript_options:
         try:
             languages = transcript_options.get('languages', ['en'])
             preserve_formatting = transcript_options.get('preserve_formatting', False)
             translate_to = transcript_options.get('translate_to')
-            cookies_path = data.get('cookies_path')
 
-            # For transcripts, only use cookies if the video is age-restricted
-            ytt_api = YouTubeTranscriptApi()  # Start without cookies
+            # Try without cookies first
+            ytt_api = YouTubeTranscriptApi()
             try:
                 transcript_list = ytt_api.list(video_id)
             except Exception as e:
-                if "too many requests" in str(e).lower() or "sign in to confirm your age" in str(e).lower():
-                    # Only use cookies if we hit an age restriction
+                error_str = str(e)
+                # If it's age-restricted, try again with cookies
+                if any(msg in error_str.lower() for msg in [
+                    "too many requests",
+                    "sign in to confirm your age",
+                    "try signing in"
+                ]):
+                    cookies_path = data.get('cookies_path')
                     if cookies_path:
+                        logger.info(f"Using cookies for transcript of age-restricted video {video_id}")
                         ytt_api = YouTubeTranscriptApi(cookie_path=cookies_path)
                         transcript_list = ytt_api.list(video_id)
                     else:
-                        raise
+                        raise Exception("Age-restricted video requires cookies for transcript access")
+                elif "Transcript is unavailable" in error_str:
+                    logger.warning(f"No transcript available for video {video_id}")
+                    return
                 else:
                     raise
-            
-            # Find transcript in requested languages
-            transcript = transcript_list.find_transcript(languages)
+
+            try:
+                # Find transcript in requested languages
+                transcript = transcript_list.find_transcript(languages)
+            except Exception as e:
+                logger.warning(f"Error finding transcript for video {video_id} in languages {languages}: {str(e)}")
+                return
 
             # Handle translation if requested
             if translate_to:
@@ -194,8 +208,11 @@ def download_media(job_id, data):
                 transcript_data["translated_to"] = translate_to
 
         except Exception as e:
-            error_response, status_code = handle_youtube_error(str(e))
-            return error_response, "/v1/media/download", status_code
+            error_str = str(e)
+            if "Transcript is unavailable" in error_str:
+                logger.warning(f"No transcript available for video {video_id}")
+            else:
+                logger.warning(f"Error getting transcript for video {video_id}: {error_str}")
 
     try:
         # Create a temporary directory for downloads
@@ -345,11 +362,11 @@ def download_media(job_id, data):
                                 logger.error(f"Error processing thumbnail: {str(e)}")
                                 continue
 
-                # Add transcript data if it was requested and available
-                if is_youtube and transcript_options and 'transcript_data' in locals():
-                    response["transcript"] = transcript_data
-                
-                return response, "/v1/media/download", 200
+            # Add transcript data if it was requested and available
+            if transcript_data:
+                response["transcript"] = transcript_data
+            
+            return response, "/v1/media/download", 200
 
     except Exception as e:
         error_str = str(e)
