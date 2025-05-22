@@ -244,7 +244,6 @@ def create_app():
     from routes.v1.toolkit.jobs_status import v1_toolkit_jobs_status_bp
     from routes.v1.audio.speech import v1_audio_speech_bp
     from routes.v1.media.media_duration import v1_media_duration_bp
-    from routes.v1.youtube.transcript import v1_youtube_transcript_bp
 
     app.register_blueprint(v1_ffmpeg_compose_bp)
     app.register_blueprint(v1_media_transcribe_bp)
@@ -275,7 +274,6 @@ def create_app():
     app.register_blueprint(v1_toolkit_jobs_status_bp)
     app.register_blueprint(v1_audio_speech_bp)
     app.register_blueprint(v1_media_duration_bp)
-    app.register_blueprint(v1_youtube_transcript_bp)
 
     return app
 
