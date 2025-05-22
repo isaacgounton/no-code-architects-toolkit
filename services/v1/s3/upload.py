@@ -18,6 +18,7 @@ import os
 import boto3
 import logging
 import requests
+import mimetypes
 from urllib.parse import urlparse, unquote, quote
 import uuid
 from werkzeug.utils import secure_filename
@@ -100,6 +101,14 @@ def stream_upload_to_s3(source, custom_filename=None, make_public=False, is_url=
         else:
             filename = secure_filename_with_extension(source.filename)
         
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(filename)
+        if not content_type:
+            # Default to binary/octet-stream only if we really can't determine the type
+            content_type = 'application/octet-stream'
+        
+        logger.info(f"Detected content type: {content_type} for file {filename}")
+        
         # Start a multipart upload
         logger.info(f"Starting multipart upload for {filename} to bucket {bucket_name}")
         acl = 'public-read' if make_public else 'private'
@@ -107,7 +116,8 @@ def stream_upload_to_s3(source, custom_filename=None, make_public=False, is_url=
         multipart_upload = s3_client.create_multipart_upload(
             Bucket=bucket_name,
             Key=filename,
-            ACL=acl
+            ACL=acl,
+            ContentType=content_type
         )
         
         upload_id = multipart_upload['UploadId']
