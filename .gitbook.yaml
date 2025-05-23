@@ -1,0 +1,9 @@
+title: DahoPevi Documentation
+description: Comprehensive documentation for DahoPevi - a powerful suite of tools for media processing, code execution, and cloud operations.
+
+root: ./docs
+structure:
+  readme: ../README.md
+  summary: SUMMARY.md
+
+redirects: {}
