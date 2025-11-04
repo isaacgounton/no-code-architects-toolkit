@@ -33,7 +33,9 @@ v1_gcp_upload_bp = Blueprint('v1_gcp_upload', __name__)
         "filename": {"type": "string"},
         "file_url": {"type": "string", "format": "uri"},
         "public": {"type": "boolean"},
-        "download_headers": {"type": "object"}
+        "download_headers": {"type": "object"},
+        "webhook_url": {"type": "string", "format": "uri"},
+        "id": {"type": "string"}
     },
     "required": ["file_url"],
     "additionalProperties": False
